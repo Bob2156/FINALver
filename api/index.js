@@ -23,26 +23,27 @@ async function fetchSmaAndVolatility(sendProgress) {
         console.log("[DEBUG 2/3] Fetching data for ticker:", ticker);
         await sendProgress("Step 1/3: Fetching data for ticker...");
 
-        const data = await Promise.race([
-            yahooFinance.chart(ticker, {
-                period1: oneYearAgo,
-                interval: "1d",
-            }),
-            new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Timeout while fetching data")), 10000)
-            ),
-        ]);
+        // Convert dates to UNIX timestamps
+        const period1 = Math.floor(oneYearAgo.getTime() / 1000);
+        const period2 = Math.floor(Date.now() / 1000);
 
-        if (!data || !data.chart || !data.chart.result[0]) {
-            throw new Error("Failed to fetch data or no results from Yahoo Finance.");
+        // Fetch data from Yahoo Finance
+        const data = await yahooFinance.chart(ticker, {
+            period1,
+            period2,
+            interval: "1d",
+        });
+
+        if (!data || !data.timestamp || !data.indicators?.quote?.[0]?.close) {
+            throw new Error("Invalid data structure received from Yahoo Finance.");
         }
 
         console.log("[DEBUG 3/3] Extracting prices and calculating metrics");
         await sendProgress("Step 1/3: Extracting prices and calculating metrics...");
 
-        const prices = data.chart.result[0].indicators.quote[0].close;
+        const prices = data.indicators.quote[0].close;
 
-        if (!prices || prices.length < 220) {
+        if (prices.length < 220) {
             throw new Error("Insufficient data to calculate SMA or volatility.");
         }
 
@@ -75,6 +76,9 @@ async function fetchSmaAndVolatility(sendProgress) {
         return { lastClose, sma220, volatility };
     } catch (error) {
         console.error("[ERROR] fetchSmaAndVolatility failed:", error.message);
+        await sendProgress(
+            `Step 1/3: Error fetching SMA and volatility: ${error.message}`
+        );
         throw new Error(`Error fetching SMA and volatility: ${error.message}`);
     }
 }
@@ -99,6 +103,9 @@ async function fetchTreasuryRate(sendProgress) {
         throw new Error("Failed to fetch treasury rate.");
     } catch (error) {
         console.error("[ERROR] fetchTreasuryRate failed:", error.message);
+        await sendProgress(
+            `Step 2/3: Error fetching treasury rate: ${error.message}`
+        );
         throw new Error(`Error fetching treasury rate: ${error.message}`);
     }
 }
@@ -150,64 +157,6 @@ module.exports = async (request, response) => {
                 // Send a deferred response
                 response.status(200).send({
                     type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-                });
 
-                const DISCORD_WEBHOOK_URL = `https://discord.com/api/v10/webhooks/${process.env.APPLICATION_ID}/${message.token}`;
-                const sendProgress = async (progress) => {
-                    await axios.post(DISCORD_WEBHOOK_URL, {
-                        content: progress,
-                    });
-                };
-
-                try {
-                    console.log("[DEBUG] Starting MFEA analysis");
-
-                    console.log("[DEBUG Step 1/3] Fetching SMA and volatility");
-                    const { lastClose, sma220, volatility } =
-                        await fetchSmaAndVolatility(sendProgress);
-
-                    console.log("[DEBUG Step 2/3] Fetching treasury rate");
-                    const treasuryRate = await fetchTreasuryRate(sendProgress);
-
-                    console.log("[DEBUG Step 3/3] Generating recommendation");
-                    await sendProgress("Step 3/3: Generating recommendation...");
-                    let recommendation = "No recommendation available.";
-                    if (lastClose > sma220) {
-                        if (volatility < 14) {
-                            recommendation = "Risk ON - 100% UPRO or 3x (100% SPY)";
-                        } else if (volatility < 24) {
-                            recommendation = "Risk MID - 100% SSO or 2x (100% SPY)";
-                        } else {
-                            recommendation =
-                                treasuryRate < 4
-                                    ? "Risk ALT - 25% UPRO + 75% ZROZ or 1.5x (50% SPY + 50% ZROZ)"
-                                    : "Risk OFF - 100% SPY or 1x (100% SPY)";
-                        }
-                    } else {
-                        recommendation =
-                            treasuryRate < 4
-                                ? "Risk ALT - 25% UPRO + 75% ZROZ or 1.5x (50% SPY + 50% ZROZ)"
-                                : "Risk OFF - 100% SPY or 1x (100% SPY)";
-                    }
-
-                    console.log("[DEBUG] Sending final response");
-                    await axios.post(DISCORD_WEBHOOK_URL, {
-                        content: `MFEA Analysis Complete:\nLast Close: ${lastClose}\nSMA 220: ${sma220}\nVolatility: ${volatility}%\nTreasury Rate: ${treasuryRate}%\nRecommendation: ${recommendation}`,
-                    });
-                } catch (error) {
-                    console.error("[ERROR] MFEA analysis failed:", error.message);
-                    await axios.post(DISCORD_WEBHOOK_URL, {
-                        content: `Error during analysis: ${error.message}`,
-                    });
-                }
-                break;
-
-            default:
-                console.error("[ERROR] Unknown command");
-                return response.status(400).send({ error: "Unknown Command" });
-        }
-    } else {
-        console.error("[ERROR] Unknown request type");
-        return response.status(400).send({ error: "Unknown Type" });
-    }
-};
+::contentReference[oaicite:0]{index=0}
+ 
