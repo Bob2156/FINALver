@@ -4,7 +4,7 @@ const {
     verifyKey,
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
-const yfinance = require("yfinance");
+const yahooFinance = require("yahoo-finance2").default;
 const axios = require("axios");
 
 const HI_COMMAND = {
@@ -20,24 +20,48 @@ const CHECK_COMMAND = {
 // Helper function to fetch SMA and volatility
 async function fetchSmaAndVolatility() {
     try {
-        const ticker = new yfinance.Ticker("^GSPC"); // S&P 500 Index
-        const data = await ticker.history({ period: "1y" });
+        const ticker = "^GSPC"; // S&P 500 Index
+        const data = await yahooFinance.historical(ticker, {
+            period1: "1y", // 1 year of data
+            interval: "1d",
+        });
 
         if (!data || data.length < 220) {
             throw new Error("Insufficient data to calculate SMA or volatility.");
         }
 
-        const sma220 = Math.round(data["Close"].rolling(220).mean().iloc(-1) * 100) / 100;
-        const lastClose = Math.round(data["Close"].iloc(-1) * 100) / 100;
+        // Calculate SMA 220
+        const closingPrices = data.map((entry) => entry.close);
+        const sma220 = (
+            closingPrices.slice(-220).reduce((sum, price) => sum + price, 0) /
+            220
+        ).toFixed(2);
+
+        const lastClose = closingPrices[closingPrices.length - 1].toFixed(2);
 
         // Calculate 30-day volatility
-        const recentData = data.slice(-30);
-        if (!recentData || recentData.length < 30) {
+        const recentData = closingPrices.slice(-30);
+        if (recentData.length < 30) {
             throw new Error("Insufficient data for volatility calculation.");
         }
-        const dailyReturns = recentData["Close"].pct_change().dropna();
-        const volatility =
-            Math.round(dailyReturns.std() * Math.sqrt(252) * 100 * 100) / 100;
+
+        const dailyReturns = recentData
+            .map(
+                (price, index) =>
+                    index === 0
+                        ? 0
+                        : (price - recentData[index - 1]) / recentData[index - 1]
+            )
+            .slice(1);
+
+        const volatility = (
+            Math.sqrt(
+                dailyReturns.reduce((sum, ret) => sum + ret ** 2, 0) /
+                    dailyReturns.length
+            ) *
+            Math.sqrt(252) *
+            100
+        ).toFixed(2);
 
         return { lastClose, sma220, volatility };
     } catch (error) {
