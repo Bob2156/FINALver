@@ -3,12 +3,12 @@ require('dotenv').config();
 
 const commands = [
     {
-        name: 'invite',
-        description: 'Get an invite link to add the bot to your server',
-    },
-    {
         name: 'hi',
         description: 'Say hello!',
+    },
+    {
+        name: 'check',
+        description: 'Fetch market data and provide recommendations.',
     },
 ];
 
