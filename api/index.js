@@ -141,34 +141,38 @@ module.exports = async (request, response) => {
                 });
 
                 const DISCORD_WEBHOOK_URL = `https://discord.com/api/v10/webhooks/${process.env.APPLICATION_ID}/${message.token}`;
-                const sendProgress = async (progress) => {
-                    await axios.post(DISCORD_WEBHOOK_URL, { content: progress });
-                };
 
                 try {
-                    // Fetch SMA and volatility
-                    console.log("[DEBUG] Fetching SMA and volatility...");
-                    const { lastClose, sma220, volatility } =
-                        await fetchWithTimeout(fetchSmaAndVolatility, "SMA and volatility fetch timed out.");
+                    console.log("[DEBUG] Starting MFEA analysis...");
 
-                    // Fetch treasury rate
-                    console.log("[DEBUG] Fetching treasury rate...");
-                    const treasuryRate = await fetchWithTimeout(fetchTreasuryRate, "Treasury rate fetch timed out.");
+                    // Fetch SMA and volatility with timeout
+                    const smaVolatility = await fetchWithTimeout(
+                        fetchSmaAndVolatility,
+                        "SMA and volatility fetch timed out."
+                    );
 
-                    // Generate final output
-                    console.log("[DEBUG] Generating final response...");
+                    // Fetch treasury rate with timeout
+                    const treasuryRate = await fetchWithTimeout(
+                        fetchTreasuryRate,
+                        "Treasury rate fetch timed out."
+                    );
+
+                    // Construct the response message
                     const result = `
 **MFEA Analysis Results:**
-- **Last Close:** ${lastClose || "Not available"}
-- **SMA 220:** ${sma220 || "Not available"}
-- **Volatility:** ${volatility ? `${volatility}%` : "Not available"}
+- **Last Close:** ${smaVolatility.lastClose || "Not available"}
+- **SMA 220:** ${smaVolatility.sma220 || "Not available"}
+- **Volatility:** ${smaVolatility.volatility ? `${smaVolatility.volatility}%` : "Not available"}
 - **Treasury Rate:** ${treasuryRate ? `${treasuryRate}%` : "Not available"}
                     `;
 
+                    console.log("[DEBUG] Sending final response to Discord");
                     await axios.post(DISCORD_WEBHOOK_URL, { content: result });
                 } catch (error) {
                     console.error("[ERROR] MFEA analysis failed:", error.message);
-                    await sendProgress(`Error during analysis: ${error.message}`);
+                    await axios.post(DISCORD_WEBHOOK_URL, {
+                        content: `Error during analysis: ${error.message}`,
+                    });
                 }
                 break;
 
