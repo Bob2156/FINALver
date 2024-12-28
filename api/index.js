@@ -20,87 +20,15 @@ async function fetchWithTimeout(fetchFn, timeoutMessage, timeout = 2000) {
                 setTimeout(() => reject(new Error(timeoutMessage)), timeout)
             ),
         ]);
-    } catch (error) {
-        console.error(`[ERROR] ${timeoutMessage}:`, error.message);
-        return "Not available";
-    }
-}
+    } catch (error) {const {
+    InteractionResponseType,
+    InteractionType,
+    verifyKey,
+} = require("discord-interactions");
+const getRawBody = require("raw-body");
 
-// Fetch SMA and volatility
-async function fetchSmaAndVolatility() {
-    console.log("[DEBUG] Fetching SMA and volatility...");
-    const ticker = "^GSPC";
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const period1 = Math.floor(oneYearAgo.getTime() / 1000);
-    const period2 = Math.floor(Date.now() / 1000);
-
-    try {
-        const data = await yahooFinance.chart(ticker, {
-            period1,
-            period2,
-            interval: "1d",
-        });
-
-        if (!data || !data.chart || !data.chart.result[0]) {
-            throw new Error("No results from Yahoo Finance.");
-        }
-
-        const prices = data.chart.result[0].indicators.quote[0].close;
-        if (!prices || prices.length < 220) {
-            throw new Error("Insufficient data to calculate SMA or volatility.");
-        }
-
-        const sma220 = (
-            prices.slice(-220).reduce((sum, price) => sum + price, 0) / 220
-        ).toFixed(2);
-        const lastClose = prices[prices.length - 1].toFixed(2);
-
-        const recentPrices = prices.slice(-30);
-        const dailyReturns = recentPrices
-            .map((price, index) =>
-                index === 0
-                    ? 0
-                    : (price - recentPrices[index - 1]) / recentPrices[index - 1]
-            )
-            .slice(1);
-
-        const volatility = (
-            Math.sqrt(
-                dailyReturns.reduce((sum, ret) => sum + ret ** 2, 0) /
-                    dailyReturns.length
-            ) *
-            Math.sqrt(252) *
-            100
-        ).toFixed(2);
-
-        console.log("[DEBUG] SMA and volatility fetched successfully.");
-        return { lastClose, sma220, volatility };
-    } catch (error) {
-        console.error("[ERROR] SMA and volatility fetch failed:", error.message);
-        return { lastClose: "Not available", sma220: "Not available", volatility: "Not available" };
-    }
-}
-
-// Fetch treasury rate
-async function fetchTreasuryRate() {
-    console.log("[DEBUG] Fetching treasury rate...");
-    const url = "https://www.cnbc.com/quotes/US3M";
-    try {
-        const response = await axios.get(url);
-        if (response.status === 200) {
-            const match = response.data.match(/lastPrice[^>]+>([\d.]+)%/);
-            if (match) {
-                console.log("[DEBUG] Treasury rate fetched successfully.");
-                return parseFloat(match[1]);
-            }
-        }
-        throw new Error("Failed to parse treasury rate.");
-    } catch (error) {
-        console.error("[ERROR] Treasury rate fetch failed:", error.message);
-        return "Not available";
-    }
-}
+const HI_COMMAND = { name: "hi", description: "Say hello!" };
+const CHECK_COMMAND = { name: "check", description: "Run MFEA analysis." };
 
 // Main handler
 module.exports = async (request, response) => {
@@ -154,39 +82,24 @@ module.exports = async (request, response) => {
                 const DISCORD_WEBHOOK_URL = `https://discord.com/api/v10/webhooks/${process.env.APPLICATION_ID}/${message.token}`;
 
                 try {
-                    console.log("[DEBUG] Starting MFEA analysis...");
+                    console.log("[DEBUG] Sending fixed values...");
 
-                    // Fetch SMA and volatility
-                    const smaVolatility = await fetchWithTimeout(
-                        fetchSmaAndVolatility,
-                        "SMA and volatility fetch timed out."
-                    );
-
-                    // Fetch treasury rate
-                    const treasuryRate = await fetchWithTimeout(
-                        fetchTreasuryRate,
-                        "Treasury rate fetch timed out."
-                    );
-
-                    // Construct final result
                     const result = `
 **MFEA Analysis Results:**
-- **Last Close:** ${smaVolatility.lastClose || "Not available"}
-- **SMA 220:** ${smaVolatility.sma220 || "Not available"}
-- **Volatility:** ${smaVolatility.volatility ? `${smaVolatility.volatility}%` : "Not available"}
-- **Treasury Rate:** ${treasuryRate ? `${treasuryRate}%` : "Not available"}
+- **Item 1:** 100
+- **Item 2:** 200
+- **Item 3:** 300
                     `;
 
                     console.log("[DEBUG] Sending final response to Discord");
                     await axios.post(DISCORD_WEBHOOK_URL, { content: result });
                 } catch (error) {
-                    console.error("[ERROR] MFEA analysis failed:", error.message);
+                    console.error("[ERROR] Failed to send response to Discord:", error.message);
                     await axios.post(DISCORD_WEBHOOK_URL, {
                         content: `**MFEA Analysis Results:**
-- **Last Close:** Not available
-- **SMA 220:** Not available
-- **Volatility:** Not available
-- **Treasury Rate:** Not available`,
+- **Item 1:** Not available
+- **Item 2:** Not available
+- **Item 3:** Not available`,
                     });
                 }
                 break;
@@ -200,3 +113,4 @@ module.exports = async (request, response) => {
         return response.status(400).send({ error: "Unknown Type" });
     }
 };
+
