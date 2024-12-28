@@ -1,0 +1,8 @@
+{
+	"name": "my-bot",
+	"version": "1.0.0",
+	"dependencies": {
+		"discord-interactions": "^2.0.2",
+		"raw-body": "^2.4.1"
+	}
+}
