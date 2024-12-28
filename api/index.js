@@ -12,10 +12,14 @@ const CHECK_COMMAND = { name: "check", description: "Run MFEA analysis." };
 
 async function fetchSmaAndVolatility() {
     try {
-        const ticker = "^GSPC";
+        const ticker = "^GSPC"; // S&P 500 Index
+
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
         const data = await yahooFinance.chart(ticker, {
-            period: "1y",
-            interval: "1d",
+            period1: oneYearAgo, // Pass the Date object
+            interval: "1d", // Daily intervals
         });
 
         if (!data || !data.chart || !data.chart.result[0]) {
@@ -31,6 +35,7 @@ async function fetchSmaAndVolatility() {
         const sma220 = (
             prices.slice(-220).reduce((sum, price) => sum + price, 0) / 220
         ).toFixed(2);
+
         const lastClose = prices[prices.length - 1].toFixed(2);
 
         const recentPrices = prices.slice(-30);
