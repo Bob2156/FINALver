@@ -27,6 +27,7 @@ async function fetchWithTimeout(fetchFn, timeoutMessage, timeout = 2000) {
 
 // Fetch SMA and volatility
 async function fetchSmaAndVolatility() {
+    console.log("[DEBUG Step 1/3] Fetching SMA and volatility...");
     const ticker = "^GSPC";
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
@@ -73,17 +74,20 @@ async function fetchSmaAndVolatility() {
         100
     ).toFixed(2);
 
+    console.log("[DEBUG Step 1/3] SMA and volatility fetched successfully.");
     return { lastClose, sma220, volatility };
 }
 
 // Fetch treasury rate
 async function fetchTreasuryRate() {
+    console.log("[DEBUG Step 2/3] Fetching treasury rate...");
     const url = "https://www.cnbc.com/quotes/US3M";
     const response = await axios.get(url);
 
     if (response.status === 200) {
         const match = response.data.match(/lastPrice[^>]+>([\d.]+)%/);
         if (match) {
+            console.log("[DEBUG Step 2/3] Treasury rate fetched successfully.");
             return parseFloat(match[1]);
         }
     }
@@ -145,31 +149,30 @@ module.exports = async (request, response) => {
                 try {
                     console.log("[DEBUG] Starting MFEA analysis...");
 
-                    // Fetch SMA and volatility with timeout
                     const smaVolatility = await fetchWithTimeout(
                         fetchSmaAndVolatility,
                         "SMA and volatility fetch timed out."
                     );
 
-                    // Fetch treasury rate with timeout
                     const treasuryRate = await fetchWithTimeout(
                         fetchTreasuryRate,
                         "Treasury rate fetch timed out."
                     );
 
-                    // Construct the response message
                     const result = `
 **MFEA Analysis Results:**
 - **Last Close:** ${smaVolatility.lastClose || "Not available"}
 - **SMA 220:** ${smaVolatility.sma220 || "Not available"}
 - **Volatility:** ${smaVolatility.volatility ? `${smaVolatility.volatility}%` : "Not available"}
 - **Treasury Rate:** ${treasuryRate ? `${treasuryRate}%` : "Not available"}
+
+[DEBUG Step 3/3] Analysis complete. Results sent to Discord.
                     `;
 
                     console.log("[DEBUG] Sending final response to Discord");
                     await axios.post(DISCORD_WEBHOOK_URL, { content: result });
                 } catch (error) {
-                    console.error("[ERROR] MFEA analysis failed:", error.message);
+                    console.error("[ERROR] Analysis failed:", error.message);
                     try {
                         await axios.post(DISCORD_WEBHOOK_URL, {
                             content: `Error during analysis: ${error.message}`,
