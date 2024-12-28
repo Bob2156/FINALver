@@ -78,7 +78,7 @@ async function fetchSmaAndVolatility() {
         return { lastClose, sma220, volatility };
     } catch (error) {
         console.error("[ERROR] SMA and volatility fetch failed:", error.message);
-        throw error;
+        return { lastClose: "Not available", sma220: "Not available", volatility: "Not available" };
     }
 }
 
@@ -98,7 +98,7 @@ async function fetchTreasuryRate() {
         throw new Error("Failed to parse treasury rate.");
     } catch (error) {
         console.error("[ERROR] Treasury rate fetch failed:", error.message);
-        throw error;
+        return "Not available";
     }
 }
 
@@ -146,6 +146,7 @@ module.exports = async (request, response) => {
             case CHECK_COMMAND.name.toLowerCase():
                 console.log("[DEBUG] Handling /check command");
 
+                // Send a deferred response
                 response.status(200).send({
                     type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
                 });
@@ -155,16 +156,19 @@ module.exports = async (request, response) => {
                 try {
                     console.log("[DEBUG] Starting MFEA analysis...");
 
+                    // Fetch SMA and volatility
                     const smaVolatility = await fetchWithTimeout(
                         fetchSmaAndVolatility,
                         "SMA and volatility fetch timed out."
                     );
 
+                    // Fetch treasury rate
                     const treasuryRate = await fetchWithTimeout(
                         fetchTreasuryRate,
                         "Treasury rate fetch timed out."
                     );
 
+                    // Construct final result
                     const result = `
 **MFEA Analysis Results:**
 - **Last Close:** ${smaVolatility.lastClose || "Not available"}
@@ -177,13 +181,13 @@ module.exports = async (request, response) => {
                     await axios.post(DISCORD_WEBHOOK_URL, { content: result });
                 } catch (error) {
                     console.error("[ERROR] MFEA analysis failed:", error.message);
-                    try {
-                        await axios.post(DISCORD_WEBHOOK_URL, {
-                            content: `Error during analysis: ${error.message}`,
-                        });
-                    } catch (webhookError) {
-                        console.error("[ERROR] Failed to send error response to Discord:", webhookError.message);
-                    }
+                    await axios.post(DISCORD_WEBHOOK_URL, {
+                        content: `**MFEA Analysis Results:**
+- **Last Close:** Not available
+- **SMA 220:** Not available
+- **Volatility:** Not available
+- **Treasury Rate:** Not available`,
+                    });
                 }
                 break;
 
