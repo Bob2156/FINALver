@@ -5,17 +5,10 @@ const {
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
 
-const INVITE_COMMAND = {
-    name: "invite",
-    description: "Get an invite link to add the bot to your server",
-};
-
 const HI_COMMAND = {
     name: "hi",
     description: "Say hello!",
 };
-
-const INVITE_URL = `https://discord.com/oauth2/authorize?client_id=${process.env.APPLICATION_ID}&scope=applications.commands`;
 
 module.exports = async (request, response) => {
     // Only respond to POST requests
@@ -49,16 +42,6 @@ module.exports = async (request, response) => {
         } else if (message.type === InteractionType.APPLICATION_COMMAND) {
             // Handle our Slash Commands
             switch (message.data.name.toLowerCase()) {
-                case INVITE_COMMAND.name.toLowerCase():
-                    response.status(200).send({
-                        type: 4,
-                        data: {
-                            content: INVITE_URL,
-                            flags: 64,
-                        },
-                    });
-                    console.log("Invite request");
-                    break;
                 case HI_COMMAND.name.toLowerCase():
                     response.status(200).send({
                         type: 4,
