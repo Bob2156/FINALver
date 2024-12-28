@@ -34,7 +34,43 @@ async function fetchSmaAndVolatility() {
             throw new Error("Insufficient data to calculate SMA or volatility.");
         }
 
-        console.log("[DEBUG] Calculating SMA and volatility");
+        console.log("[DEBUG] Calculating SMA and volatilitconst {
+    InteractionResponseType,
+    InteractionType,
+    verifyKey,
+} = require("discord-interactions");
+const getRawBody = require("raw-body");
+const yahooFinance = require("yahoo-finance2").default;
+const axios = require("axios");
+
+const HI_COMMAND = { name: "hi", description: "Say hello!" };
+const CHECK_COMMAND = { name: "check", description: "Run MFEA analysis." };
+
+async function fetchSmaAndVolatility() {
+    console.log("[DEBUG 1/3] Starting fetchSmaAndVolatility");
+    try {
+        const ticker = "^GSPC";
+
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+        console.log("[DEBUG 2/3] Fetching data for ticker:", ticker);
+        const data = await yahooFinance.chart(ticker, {
+            period1: oneYearAgo,
+            interval: "1d",
+        });
+
+        if (!data || !data.chart || !data.chart.result[0]) {
+            throw new Error("Failed to fetch data or no results from Yahoo Finance.");
+        }
+
+        console.log("[DEBUG 3/3] Extracting prices and calculating metrics");
+        const prices = data.chart.result[0].indicators.quote[0].close;
+
+        if (!prices || prices.length < 220) {
+            throw new Error("Insufficient data to calculate SMA or volatility.");
+        }
+
         const sma220 = (
             prices.slice(-220).reduce((sum, price) => sum + price, 0) / 220
         ).toFixed(2);
@@ -59,7 +95,7 @@ async function fetchSmaAndVolatility() {
             100
         ).toFixed(2);
 
-        console.log("[DEBUG] Finished fetchSmaAndVolatility");
+        console.log("[DEBUG] fetchSmaAndVolatility complete");
         return { lastClose, sma220, volatility };
     } catch (error) {
         console.error("[ERROR] fetchSmaAndVolatility failed:", error.message);
@@ -68,12 +104,13 @@ async function fetchSmaAndVolatility() {
 }
 
 async function fetchTreasuryRate() {
-    console.log("[DEBUG] Starting fetchTreasuryRate");
+    console.log("[DEBUG 1/2] Starting fetchTreasuryRate");
     try {
         const url = "https://www.cnbc.com/quotes/US3M";
         const response = await axios.get(url);
 
         if (response.status === 200) {
+            console.log("[DEBUG 2/2] Parsing treasury rate");
             const match = response.data.match(/lastPrice[^>]+>([\d.]+)%/);
             if (match) {
                 console.log("[DEBUG] Treasury rate fetched successfully");
@@ -138,10 +175,16 @@ module.exports = async (request, response) => {
 
                 const DISCORD_WEBHOOK_URL = `https://discord.com/api/v10/webhooks/${process.env.APPLICATION_ID}/${message.token}`;
                 try {
+                    console.log("[DEBUG] Starting MFEA analysis");
+
+                    console.log("[DEBUG] Step 1/3: Fetching SMA and volatility");
                     const { lastClose, sma220, volatility } =
                         await fetchSmaAndVolatility();
+
+                    console.log("[DEBUG] Step 2/3: Fetching treasury rate");
                     const treasuryRate = await fetchTreasuryRate();
 
+                    console.log("[DEBUG] Step 3/3: Generating recommendation");
                     let recommendation = "No recommendation available.";
                     if (lastClose > sma220) {
                         if (volatility < 14) {
@@ -166,7 +209,7 @@ module.exports = async (request, response) => {
                         content: `Last Close: ${lastClose}\nSMA 220: ${sma220}\nVolatility: ${volatility}%\nTreasury Rate: ${treasuryRate}%\nRecommendation: ${recommendation}`,
                     });
                 } catch (error) {
-                    console.error("[ERROR] Analysis failed:", error.message);
+                    console.error("[ERROR] MFEA analysis failed:", error.message);
                     await axios.post(DISCORD_WEBHOOK_URL, {
                         content: `Error during analysis: ${error.message}`,
                     });
