@@ -170,9 +170,13 @@ module.exports = async (request, response) => {
                     await axios.post(DISCORD_WEBHOOK_URL, { content: result });
                 } catch (error) {
                     console.error("[ERROR] MFEA analysis failed:", error.message);
-                    await axios.post(DISCORD_WEBHOOK_URL, {
-                        content: `Error during analysis: ${error.message}`,
-                    });
+                    try {
+                        await axios.post(DISCORD_WEBHOOK_URL, {
+                            content: `Error during analysis: ${error.message}`,
+                        });
+                    } catch (webhookError) {
+                        console.error("[ERROR] Failed to send error response to Discord:", webhookError.message);
+                    }
                 }
                 break;
 
