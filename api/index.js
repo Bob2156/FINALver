@@ -10,8 +10,10 @@ const axios = require("axios");
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
 const CHECK_COMMAND = { name: "check", description: "Run MFEA analysis." };
 
-async function fetchSmaAndVolatility() {
+// Helper function to fetch SMA and volatility
+async function fetchSmaAndVolatility(sendProgress) {
     console.log("[DEBUG 1/3] Starting fetchSmaAndVolatility");
+    await sendProgress("Step 1/3: Fetching SMA and volatility...");
     try {
         const ticker = "^GSPC";
 
@@ -19,14 +21,24 @@ async function fetchSmaAndVolatility() {
         oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
         console.log("[DEBUG 2/3] Fetching data for ticker:", ticker);
-        const data = await yahooFinance.chart(ticker, {
-            period1: oneYearAgo,
-            interval: "1d",
-        });
+        await sendProgress("Step 1/3: Fetching data for ticker...");
+
+        const data = await Promise.race([
+            yahooFinance.chart(ticker, {
+                period1: oneYearAgo,
+                interval: "1d",
+            }),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("Timeout while fetching data")), 10000)
+            ),
+        ]);
 
         if (!data || !data.chart || !data.chart.result[0]) {
             throw new Error("Failed to fetch data or no results from Yahoo Finance.");
         }
+
+        console.log("[DEBUG 3/3] Extracting prices and calculating metrics");
+        await sendProgress("Step 1/3: Extracting prices and calculating metrics...");
 
         const prices = data.chart.result[0].indicators.quote[0].close;
 
@@ -34,7 +46,6 @@ async function fetchSmaAndVolatility() {
             throw new Error("Insufficient data to calculate SMA or volatility.");
         }
 
-        console.log("[DEBUG 3/3] Extracting prices and calculating metrics");
         const sma220 = (
             prices.slice(-220).reduce((sum, price) => sum + price, 0) / 220
         ).toFixed(2);
@@ -60,6 +71,7 @@ async function fetchSmaAndVolatility() {
         ).toFixed(2);
 
         console.log("[DEBUG] fetchSmaAndVolatility complete");
+        await sendProgress("Step 1/3: Fetching SMA and volatility completed.");
         return { lastClose, sma220, volatility };
     } catch (error) {
         console.error("[ERROR] fetchSmaAndVolatility failed:", error.message);
@@ -67,8 +79,10 @@ async function fetchSmaAndVolatility() {
     }
 }
 
-async function fetchTreasuryRate() {
+// Helper function to fetch treasury rate
+async function fetchTreasuryRate(sendProgress) {
     console.log("[DEBUG 1/2] Starting fetchTreasuryRate");
+    await sendProgress("Step 2/3: Fetching treasury rate...");
     try {
         const url = "https://www.cnbc.com/quotes/US3M";
         const response = await axios.get(url);
@@ -78,6 +92,7 @@ async function fetchTreasuryRate() {
             const match = response.data.match(/lastPrice[^>]+>([\d.]+)%/);
             if (match) {
                 console.log("[DEBUG] Treasury rate fetched successfully");
+                await sendProgress("Step 2/3: Treasury rate fetched successfully.");
                 return parseFloat(match[1]);
             }
         }
@@ -88,6 +103,7 @@ async function fetchTreasuryRate() {
     }
 }
 
+// Main request handler
 module.exports = async (request, response) => {
     console.log("[DEBUG] Received a new request");
     if (request.method !== "POST") {
@@ -95,7 +111,6 @@ module.exports = async (request, response) => {
         return response.status(405).send({ error: "Method Not Allowed" });
     }
 
-    // Verify the request
     const signature = request.headers["x-signature-ed25519"];
     const timestamp = request.headers["x-signature-timestamp"];
     const rawBody = await getRawBody(request);
@@ -138,17 +153,24 @@ module.exports = async (request, response) => {
                 });
 
                 const DISCORD_WEBHOOK_URL = `https://discord.com/api/v10/webhooks/${process.env.APPLICATION_ID}/${message.token}`;
+                const sendProgress = async (progress) => {
+                    await axios.post(DISCORD_WEBHOOK_URL, {
+                        content: progress,
+                    });
+                };
+
                 try {
                     console.log("[DEBUG] Starting MFEA analysis");
 
                     console.log("[DEBUG Step 1/3] Fetching SMA and volatility");
                     const { lastClose, sma220, volatility } =
-                        await fetchSmaAndVolatility();
+                        await fetchSmaAndVolatility(sendProgress);
 
                     console.log("[DEBUG Step 2/3] Fetching treasury rate");
-                    const treasuryRate = await fetchTreasuryRate();
+                    const treasuryRate = await fetchTreasuryRate(sendProgress);
 
                     console.log("[DEBUG Step 3/3] Generating recommendation");
+                    await sendProgress("Step 3/3: Generating recommendation...");
                     let recommendation = "No recommendation available.";
                     if (lastClose > sma220) {
                         if (volatility < 14) {
@@ -168,9 +190,9 @@ module.exports = async (request, response) => {
                                 : "Risk OFF - 100% SPY or 1x (100% SPY)";
                     }
 
-                    console.log("[DEBUG] Sending follow-up response");
+                    console.log("[DEBUG] Sending final response");
                     await axios.post(DISCORD_WEBHOOK_URL, {
-                        content: `Last Close: ${lastClose}\nSMA 220: ${sma220}\nVolatility: ${volatility}%\nTreasury Rate: ${treasuryRate}%\nRecommendation: ${recommendation}`,
+                        content: `MFEA Analysis Complete:\nLast Close: ${lastClose}\nSMA 220: ${sma220}\nVolatility: ${volatility}%\nTreasury Rate: ${treasuryRate}%\nRecommendation: ${recommendation}`,
                     });
                 } catch (error) {
                     console.error("[ERROR] MFEA analysis failed:", error.message);
