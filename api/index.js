@@ -7,22 +7,19 @@ const getRawBody = require("raw-body");
 const yahooFinance = require("yahoo-finance2").default;
 const axios = require("axios");
 
-const HI_COMMAND = {
-    name: "hi",
-    description: "Say hello!",
-};
-
-const CHECK_COMMAND = {
-    name: "check",
-    description: "Run the Market Financial Evaluation Assistant (MFEA) analysis.",
-};
+// Command Definitions
+const HI_COMMAND = { name: "hi", description: "Say hello!" };
+const CHECK_COMMAND = { name: "check", description: "Run MFEA analysis." };
 
 // Helper function to fetch SMA and volatility
 async function fetchSmaAndVolatility() {
     try {
         const ticker = "^GSPC"; // S&P 500 Index
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
         const data = await yahooFinance.historical(ticker, {
-            period1: "1y", // 1 year of data
+            period1: oneYearAgo.toISOString().split("T")[0], // YYYY-MM-DD
             interval: "1d",
         });
 
@@ -41,16 +38,11 @@ async function fetchSmaAndVolatility() {
 
         // Calculate 30-day volatility
         const recentData = closingPrices.slice(-30);
-        if (recentData.length < 30) {
-            throw new Error("Insufficient data for volatility calculation.");
-        }
-
         const dailyReturns = recentData
-            .map(
-                (price, index) =>
-                    index === 0
-                        ? 0
-                        : (price - recentData[index - 1]) / recentData[index - 1]
+            .map((price, index) =>
+                index === 0
+                    ? 0
+                    : (price - recentData[index - 1]) / recentData[index - 1]
             )
             .slice(1);
 
@@ -89,110 +81,97 @@ async function fetchTreasuryRate() {
 
 // Main handler
 module.exports = async (request, response) => {
-    if (request.method === "POST") {
-        // Verify the request
-        const signature = request.headers["x-signature-ed25519"];
-        const timestamp = request.headers["x-signature-timestamp"];
-        const rawBody = await getRawBody(request);
+    if (request.method !== "POST") {
+        return response.status(405).send({ error: "Method Not Allowed" });
+    }
 
-        const isValidRequest = verifyKey(
-            rawBody,
-            signature,
-            timestamp,
-            process.env.PUBLIC_KEY
-        );
+    // Verify the request
+    const signature = request.headers["x-signature-ed25519"];
+    const timestamp = request.headers["x-signature-timestamp"];
+    const rawBody = await getRawBody(request);
 
-        if (!isValidRequest) {
-            console.error("Invalid Request");
-            return response.status(401).send({ error: "Bad request signature" });
-        }
+    const isValidRequest = verifyKey(
+        rawBody,
+        signature,
+        timestamp,
+        process.env.PUBLIC_KEY
+    );
 
-        // Handle the request
-        const message = JSON.parse(rawBody);
+    if (!isValidRequest) {
+        console.error("Invalid Request");
+        return response.status(401).send({ error: "Bad request signature" });
+    }
 
-        if (message.type === InteractionType.PING) {
-            console.log("Handling Ping request");
-            response.send({
-                type: InteractionResponseType.PONG,
-            });
-        } else if (message.type === InteractionType.APPLICATION_COMMAND) {
-            switch (message.data.name.toLowerCase()) {
-                case HI_COMMAND.name.toLowerCase():
-                    response.status(200).send({
-                        type: 4,
-                        data: {
-                            content: "Hello!",
-                        },
-                    });
-                    console.log("Hi request");
-                    break;
+    const message = JSON.parse(rawBody);
 
-                case CHECK_COMMAND.name.toLowerCase():
-                    response.status(200).send({
-                        type: 4,
-                        data: {
-                            content: "Running MFEA analysis. Please wait...",
-                        },
-                    });
-                    console.log("Check request");
+    if (message.type === InteractionType.PING) {
+        console.log("Handling Ping request");
+        return response.send({ type: InteractionResponseType.PONG });
+    }
 
-                    // Run MFEA logic asynchronously
-                    try {
-                        const { lastClose, sma220, volatility } =
-                            await fetchSmaAndVolatility();
-                        const treasuryRate = await fetchTreasuryRate();
+    if (message.type === InteractionType.APPLICATION_COMMAND) {
+        switch (message.data.name.toLowerCase()) {
+            case HI_COMMAND.name.toLowerCase():
+                console.log("Hi request");
+                return response.send({
+                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                    data: { content: "Hello!" },
+                });
 
-                        // Generate recommendation
-                        let recommendation = "No recommendation available.";
-                        if (lastClose > sma220) {
-                            if (volatility < 14) {
-                                recommendation =
-                                    "Risk ON - 100% UPRO or 3x (100% SPY)";
-                            } else if (volatility < 24) {
-                                recommendation =
-                                    "Risk MID - 100% SSO or 2x (100% SPY)";
-                            } else {
-                                recommendation =
-                                    treasuryRate < 4
-                                        ? "Risk ALT - 25% UPRO + 75% ZROZ or 1.5x (50% SPY + 50% ZROZ)"
-                                        : "Risk OFF - 100% SPY or 1x (100% SPY)";
-                            }
+            case CHECK_COMMAND.name.toLowerCase():
+                console.log("Check request");
+
+                // Send a deferred response
+                response.status(200).send({
+                    type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+                });
+
+                // Perform MFEA analysis
+                const DISCORD_WEBHOOK_URL = `https://discord.com/api/v10/webhooks/${process.env.APPLICATION_ID}/${message.token}`;
+                try {
+                    const { lastClose, sma220, volatility } =
+                        await fetchSmaAndVolatility();
+                    const treasuryRate = await fetchTreasuryRate();
+
+                    let recommendation = "No recommendation available.";
+                    if (lastClose > sma220) {
+                        if (volatility < 14) {
+                            recommendation =
+                                "Risk ON - 100% UPRO or 3x (100% SPY)";
+                        } else if (volatility < 24) {
+                            recommendation =
+                                "Risk MID - 100% SSO or 2x (100% SPY)";
                         } else {
                             recommendation =
                                 treasuryRate < 4
                                     ? "Risk ALT - 25% UPRO + 75% ZROZ or 1.5x (50% SPY + 50% ZROZ)"
                                     : "Risk OFF - 100% SPY or 1x (100% SPY)";
                         }
-
-                        console.log("MFEA analysis completed:", recommendation);
-
-                        response.status(200).send({
-                            type: 4,
-                            data: {
-                                content: `Last Close: ${lastClose}\nSMA 220: ${sma220}\nVolatility: ${volatility}%\nTreasury Rate: ${treasuryRate}%\nRecommendation: ${recommendation}`,
-                            },
-                        });
-                    } catch (error) {
-                        console.error(error.message);
-                        response.status(200).send({
-                            type: 4,
-                            data: {
-                                content: `Error during MFEA analysis: ${error.message}`,
-                            },
-                        });
+                    } else {
+                        recommendation =
+                            treasuryRate < 4
+                                ? "Risk ALT - 25% UPRO + 75% ZROZ or 1.5x (50% SPY + 50% ZROZ)"
+                                : "Risk OFF - 100% SPY or 1x (100% SPY)";
                     }
-                    break;
 
-                default:
-                    console.error("Unknown Command");
-                    response.status(400).send({ error: "Unknown Command" });
-                    break;
-            }
-        } else {
-            console.error("Unknown Type");
-            response.status(400).send({ error: "Unknown Type" });
+                    // Send the follow-up message
+                    await axios.post(DISCORD_WEBHOOK_URL, {
+                        content: `Last Close: ${lastClose}\nSMA 220: ${sma220}\nVolatility: ${volatility}%\nTreasury Rate: ${treasuryRate}%\nRecommendation: ${recommendation}`,
+                    });
+                } catch (error) {
+                    console.error("Error during analysis:", error.message);
+                    await axios.post(DISCORD_WEBHOOK_URL, {
+                        content: `Error during analysis: ${error.message}`,
+                    });
+                }
+                break;
+
+            default:
+                console.error("Unknown Command");
+                return response.status(400).send({ error: "Unknown Command" });
         }
     } else {
-        response.status(405).send({ error: "Method Not Allowed" });
+        console.error("Unknown Type");
+        return response.status(400).send({ error: "Unknown Type" });
     }
 };
