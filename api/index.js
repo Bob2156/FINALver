@@ -9,35 +9,17 @@ const axios = require("axios");
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
 const CHECK_COMMAND = { name: "check", description: "Display MFEA analysis status." };
 
-// Helper function to fetch the 3-month Treasury Bill rate
-async function fetchTreasuryRate() {
-    console.log("[DEBUG] Attempting to fetch 3-month Treasury Bill rate...");
-    const url = "https://www.cnbc.com/quotes/US3M";
-    try {
-        const response = await axios.get(url);
-        if (response.status === 200) {
-            const match = response.data.match(/lastPrice[^>]+>([\d.]+)%/);
-            if (match) {
-                const rate = parseFloat(match[1]);
-                console.log(`[DEBUG] Fetched Treasury Rate: ${rate}%`);
-                return rate;
-            } else {
-                throw new Error("Failed to parse Treasury rate from response.");
-            }
-        } else {
-            throw new Error(`HTTP Error: ${response.status}`);
-        }
-    } catch (error) {
-        console.error("[ERROR] Failed to fetch Treasury rate:", error.message);
-        return null;
-    }
+// Helper function to log debug messages
+function logDebug(message) {
+    console.log(`[DEBUG] ${message}`);
 }
 
 // Main handler
 module.exports = async (request, response) => {
-    console.log("[DEBUG] Received a new request");
+    logDebug("Received a new request");
+
     if (request.method !== "POST") {
-        console.log("[DEBUG] Invalid method, returning 405");
+        logDebug("Invalid method, returning 405");
         return response.status(405).send({ error: "Method Not Allowed" });
     }
 
@@ -58,27 +40,29 @@ module.exports = async (request, response) => {
     }
 
     const message = JSON.parse(rawBody);
-    console.log("[DEBUG] Message type:", message.type);
+    logDebug(`Message type: ${message.type}`);
 
     if (message.type === InteractionType.PING) {
-        console.log("[DEBUG] Handling PING");
+        logDebug("Handling PING");
         return response.send({ type: InteractionResponseType.PONG });
     }
 
     if (message.type === InteractionType.APPLICATION_COMMAND) {
         switch (message.data.name.toLowerCase()) {
             case HI_COMMAND.name.toLowerCase():
-                console.log("[DEBUG] Handling /hi command");
-                return response.send({
+                logDebug("Handling /hi command");
+                response.send({
                     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                     data: { content: "Hello!" },
                 });
+                logDebug("/hi command successfully executed");
+                break;
 
             case CHECK_COMMAND.name.toLowerCase():
-                console.log("[DEBUG] Handling /check command");
+                logDebug("Handling /check command");
 
                 // Send the formatted embed
-                return response.send({
+                response.send({
                     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                     data: {
                         embeds: [
@@ -91,12 +75,14 @@ module.exports = async (request, response) => {
                                     { name: "3-month Treasury Bill", value: "Working", inline: true },
                                 ],
                                 footer: {
-                                    text: "MFEA Analysis",
+                                    text: "MFEA Recommendation: Still working on it",
                                 },
                             },
                         ],
                     },
                 });
+                logDebug("/check command successfully executed");
+                break;
 
             default:
                 console.error("[ERROR] Unknown command");
