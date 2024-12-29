@@ -35,7 +35,7 @@ async function fetchFinancialData() {
 
         // Extract 220-day SMA from Adjusted Close
         const spyAdjClosePrices = spyData.chart.result[0].indicators.adjclose[0].adjclose;
-        if (spyAdjClosePrices.length < 220) {
+        if (!spyAdjClosePrices || spyAdjClosePrices.length < 220) {
             throw new Error("Not enough data to calculate 220-day SMA.");
         }
         const sum220 = spyAdjClosePrices.slice(-220).reduce((acc, price) => acc + price, 0);
@@ -82,7 +82,11 @@ async function fetchFinancialData() {
             treasuryRate: parseFloat(currentTreasuryRate).toFixed(2),
             isTreasuryFalling: isTreasuryFalling,
         };
+    } catch (error) {
+        console.error("Error fetching financial data:", error);
+        throw new Error("Failed to fetch financial data");
     }
+}
 
 // Helper function to determine risk category and allocation
 function determineRiskCategory(data) {
@@ -160,6 +164,15 @@ module.exports = async (req, res) => {
         return;
     }
 
+    let message;
+    try {
+        message = JSON.parse(rawBody);
+    } catch (error) {
+        console.error("[ERROR] Failed to parse JSON:", error);
+        res.status(400).json({ error: "Invalid JSON format" });
+        return;
+    }
+
     const isValidRequest = verifyKey(
         rawBody,
         signature,
@@ -170,15 +183,6 @@ module.exports = async (req, res) => {
     if (!isValidRequest) {
         console.error("[ERROR] Invalid request signature");
         res.status(401).json({ error: "Bad request signature" });
-        return;
-    }
-
-    let message;
-    try {
-        message = JSON.parse(rawBody);
-    } catch (error) {
-        console.error("[ERROR] Failed to parse JSON:", error);
-        res.status(400).json({ error: "Invalid JSON format" });
         return;
     }
 
