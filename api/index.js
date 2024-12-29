@@ -19,12 +19,11 @@ function logDebug(message) {
 // Helper function to fetch financial data
 async function fetchFinancialData() {
     try {
-        // Fetch S&P 500 (price and historical data for 220 days), Treasury Rate (30 days), and VIX concurrently
-        const [sp500Response, treasuryResponse, vixResponse] = await Promise.all([
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=220d"),
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=30d"), // Fetch 30 days for Treasury rate
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=2d"), // Fetch 2 days to ensure latest value
-        ]);
+        // Fetch SPX data for 220 days (to calculate 220-day SMA) and 21 days (for volatility)
+        // Fetch 220 days and then extract the last 21 days for volatility calculation
+        const sp500Response = await axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=220d");
+        const treasuryResponse = await axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=60d"); // Fetch 60 days to ensure at least 30 days
+        const vixResponse = await axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=2d"); // Fetch 2 days to ensure latest value
 
         const sp500Data = sp500Response.data;
         const treasuryData = treasuryResponse.data;
@@ -44,15 +43,15 @@ async function fetchFinancialData() {
         logDebug(`220-day SMA: ${sma220}`);
 
         // Extract 3-Month Treasury Rate
-        // Note: Treasury rates are typically represented under 'close', not 'adjclose'
+        // Treasury rates are typically represented under 'close', not 'adjclose'
         const treasuryRates = treasuryData.chart.result[0].indicators.quote[0].close;
         if (!treasuryRates || treasuryRates.length === 0) {
             throw new Error("Treasury rate data is unavailable.");
         }
-        const currentTreasuryRate = parseFloat(treasuryRates[treasuryRates.length - 1]).toFixed(2);
+        const currentTreasuryRate = parseFloat(treasuryRates[treasuryRates.length - 1]).toFixed(3); // More precise
         const oneMonthAgoTreasuryRate = treasuryRates.length >= 30
-            ? parseFloat(treasuryRates[treasuryRates.length - 30]).toFixed(2)
-            : parseFloat(treasuryRates[0]).toFixed(2); // Handle cases with less than 30 data points
+            ? parseFloat(treasuryRates[treasuryRates.length - 30]).toFixed(3)
+            : parseFloat(treasuryRates[0]).toFixed(3); // Handle cases with less than 30 data points
         logDebug(`Current 3-Month Treasury Rate: ${currentTreasuryRate}%`);
         logDebug(`3-Month Treasury Rate 30 Days Ago: ${oneMonthAgoTreasuryRate}%`);
 
@@ -70,24 +69,30 @@ async function fetchFinancialData() {
         }
         logDebug(`Current VIX (Volatility): ${currentVix}%`);
 
+        // Calculate 21-day annualized volatility based on SPX returns
+        const last21Prices = sp500Prices.slice(-21);
+        const returns = last21Prices.slice(1).map((p, i) => (p / last21Prices[i] - 1));
+        const meanReturn = returns.reduce((acc, r) => acc + r, 0) / returns.length;
+        const squaredDiffs = returns.map(r => (r - meanReturn) ** 2);
+        const variance = squaredDiffs.reduce((acc, sd) => acc + sd, 0) / (returns.length - 1);
+        const dailyVolatility = Math.sqrt(variance);
+        const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100).toFixed(2); // Annualized volatility as percentage
+        logDebug(`21-Day Annualized Volatility: ${annualizedVolatility}%`);
+
         return {
             sp500: parseFloat(sp500Price).toFixed(2),
             sma220: parseFloat(sma220).toFixed(2),
-            volatility: parseFloat(currentVix).toFixed(2),
-            treasuryRate: parseFloat(currentTreasuryRate).toFixed(2),
+            volatility: parseFloat(annualizedVolatility).toFixed(2),
+            treasuryRate: parseFloat(currentTreasuryRate).toFixed(3),
             isTreasuryFalling: isTreasuryFalling,
         };
-    } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error("Failed to fetch financial data");
     }
-}
 
-// Helper function to determine risk category and allocation
+// Helper function to determine risk category and allocation based on clarified logic
 function determineRiskCategory(data) {
     const { sp500, sma220, volatility, treasuryRate, isTreasuryFalling } = data;
 
-    logDebug(`Determining risk category with SPX: ${sp500}, SMA220: ${sma220}, VIX: ${volatility}, Treasury Rate: ${treasuryRate}, Is Treasury Falling: ${isTreasuryFalling}`);
+    logDebug(`Determining risk category with SPX: ${sp500}, SMA220: ${sma220}, Volatility: ${volatility}%, Treasury Rate: ${treasuryRate}%, Is Treasury Falling: ${isTreasuryFalling}`);
 
     if (sp500 > sma220) {
         if (volatility < 14) {
@@ -114,7 +119,7 @@ function determineRiskCategory(data) {
             }
         }
     } else {
-        // When SPX <= 220-day SMA, do not consider volatility, directly check Treasury rate
+        // If SPX ≤ 220 SMA, directly evaluate Treasury Rate trend
         if (isTreasuryFalling) {
             return {
                 category: "Risk Alt",
@@ -222,7 +227,7 @@ module.exports = async (req, res) => {
                                     fields: [
                                         { name: "S&P 500 Price", value: `$${financialData.sp500}`, inline: true },
                                         { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
-                                        { name: "Volatility (VIX)", value: `${financialData.volatility}%`, inline: true },
+                                        { name: "21-Day Annualized Volatility", value: `${financialData.volatility}%`, inline: true },
                                         { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
                                         { name: "Treasury Rate Trend", value: financialData.isTreasuryFalling ? "Falling" : "Not Falling", inline: true },
                                         { name: "Risk Category", value: category, inline: false },
