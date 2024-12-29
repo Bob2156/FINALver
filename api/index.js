@@ -4,7 +4,7 @@ const {
     verifyKey,
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
-const axios = require("axios");
+const fetch = require("node-fetch"); // Ensure this is installed in your package.json
 
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
 const CHECK_COMMAND = { name: "check", description: "Display MFEA analysis status." };
@@ -62,11 +62,24 @@ module.exports = async (request, response) => {
                 logDebug("Handling /check command");
 
                 try {
-                    // Fetch financial data from the existing API
-                    const fetchDataUrl = `${process.env.BASE_URL}/api/fetchData`;
-                    const { data } = await axios.get(fetchDataUrl);
+                    // Logic from fetchData.js
+                    const [sp500Response, treasuryResponse] = await Promise.all([
+                        fetch("https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=21d"),
+                        fetch("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX"),
+                    ]);
 
-                    // Send the formatted embed with real data
+                    const sp500Data = await sp500Response.json();
+                    const treasuryData = await treasuryResponse.json();
+
+                    const sp500Price = sp500Data.chart.result[0].meta.regularMarketPrice;
+                    const treasuryRate = treasuryData.chart.result[0].meta.regularMarketPrice;
+
+                    const prices = sp500Data.chart.result[0].indicators.adjclose[0].adjclose;
+                    const returns = prices.slice(1).map((p, i) => (p / prices[i] - 1));
+                    const dailyVolatility = Math.sqrt(returns.reduce((sum, r) => sum + r ** 2, 0) / returns.length);
+                    const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100).toFixed(2);
+
+                    // Send the response back to Discord
                     response.send({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: {
@@ -75,9 +88,9 @@ module.exports = async (request, response) => {
                                     title: "MFEA Analysis Status",
                                     color: 3447003, // Blue banner
                                     fields: [
-                                        { name: "S&P 500 Price", value: `$${data.sp500}`, inline: true },
-                                        { name: "3-Month Treasury Rate", value: `${data.treasuryRate}%`, inline: true },
-                                        { name: "S&P 500 Volatility (21 days, annualized)", value: `${data.sp500Volatility}`, inline: false },
+                                        { name: "S&P 500 Price", value: `$${sp500Price}`, inline: true },
+                                        { name: "3-Month Treasury Rate", value: `${treasuryRate}%`, inline: true },
+                                        { name: "S&P 500 Volatility (21 days, annualized)", value: `${annualizedVolatility}%`, inline: false },
                                     ],
                                     footer: {
                                         text: "MFEA Recommendation: Analyze further",
@@ -105,4 +118,3 @@ module.exports = async (request, response) => {
         return response.status(400).send({ error: "Unknown Type" });
     }
 };
-
