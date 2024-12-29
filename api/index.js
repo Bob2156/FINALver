@@ -13,22 +13,29 @@ const CHECK_COMMAND = { name: "check", description: "Respond with 'working'." };
 async function fetchTreasuryRate() {
     console.log("[DEBUG] Attempting to fetch 3-month Treasury Bill rate...");
     const url = "https://www.cnbc.com/quotes/US3M";
+
     try {
-        const response = await axios.get(url);
+        console.log("[DEBUG] Sending request to CNBC...");
+        const response = await axios.get(url, { timeout: 5000 }); // Set a 5-second timeout
+        console.log(`[DEBUG] Received response: HTTP ${response.status}`);
+
         if (response.status === 200) {
+            console.log("[DEBUG] Parsing Treasury Rate...");
             const match = response.data.match(/lastPrice[^>]+>([\d.]+)%/);
             if (match) {
                 const rate = parseFloat(match[1]);
-                console.log(`[DEBUG] Fetched Treasury Rate: ${rate}%`);
+                console.log(`[DEBUG] Successfully fetched Treasury Rate: ${rate}%`);
                 return rate;
             } else {
-                throw new Error("Failed to parse Treasury rate from response.");
+                console.error("[ERROR] Failed to parse Treasury rate from response.");
+                return null;
             }
         } else {
-            throw new Error(`HTTP Error: ${response.status}`);
+            console.error(`[ERROR] Unexpected HTTP status: ${response.status}`);
+            return null;
         }
     } catch (error) {
-        console.error("[ERROR] Failed to fetch Treasury rate:", error.message);
+        console.error("[ERROR] Error during fetchTreasuryRate:", error.message);
         return null;
     }
 }
@@ -85,11 +92,9 @@ module.exports = async (request, response) => {
                 try {
                     const treasuryRate = await fetchTreasuryRate();
                     if (treasuryRate !== null) {
-                        console.log(
-                            `[DEBUG] Successfully fetched Treasury Rate: ${treasuryRate}%`
-                        );
+                        console.log(`[DEBUG] Successfully fetched Treasury Rate: ${treasuryRate}%`);
                     } else {
-                        console.log("[DEBUG] Treasury Rate is not available.");
+                        console.log("[DEBUG] Treasury Rate fetch failed or is unavailable.");
                     }
                 } catch (error) {
                     console.error(
