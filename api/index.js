@@ -61,27 +61,39 @@ module.exports = async (request, response) => {
             case CHECK_COMMAND.name.toLowerCase():
                 logDebug("Handling /check command");
 
-                // Send the formatted embed
-                response.send({
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: {
-                        embeds: [
-                            {
-                                title: "MFEA Analysis Status",
-                                color: 3447003, // Blue banner
-                                fields: [
-                                    { name: "SMA", value: "Working", inline: true },
-                                    { name: "Volatility", value: "Working", inline: true },
-                                    { name: "3-month Treasury Bill", value: "Working", inline: true },
-                                ],
-                                footer: {
-                                    text: "MFEA Recommendation: Still working on it",
+                try {
+                    // Fetch financial data from the existing API
+                    const fetchDataUrl = `${process.env.BASE_URL}/api/fetchData`;
+                    const { data } = await axios.get(fetchDataUrl);
+
+                    // Send the formatted embed with real data
+                    response.send({
+                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                        data: {
+                            embeds: [
+                                {
+                                    title: "MFEA Analysis Status",
+                                    color: 3447003, // Blue banner
+                                    fields: [
+                                        { name: "S&P 500 Price", value: `$${data.sp500}`, inline: true },
+                                        { name: "3-Month Treasury Rate", value: `${data.treasuryRate}%`, inline: true },
+                                        { name: "S&P 500 Volatility (21 days, annualized)", value: `${data.sp500Volatility}`, inline: false },
+                                    ],
+                                    footer: {
+                                        text: "MFEA Recommendation: Analyze further",
+                                    },
                                 },
-                            },
-                        ],
-                    },
-                });
-                logDebug("/check command successfully executed");
+                            ],
+                        },
+                    });
+                    logDebug("/check command successfully executed");
+                } catch (error) {
+                    console.error("[ERROR] Failed to fetch financial data:", error);
+                    response.send({
+                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                        data: { content: "Failed to fetch financial data. Please try again later." },
+                    });
+                }
                 break;
 
             default:
@@ -93,3 +105,4 @@ module.exports = async (request, response) => {
         return response.status(400).send({ error: "Unknown Type" });
     }
 };
+
