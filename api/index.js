@@ -28,7 +28,6 @@ async function fetchFinancialData() {
 
         const sp500Data = sp500Response.data;
         const treasuryData = treasuryResponse.data;
-        // Removed VIX data as it's no longer needed
 
         // Extract S&P 500 price
         const sp500Price = sp500Data.chart.result[0].meta.regularMarketPrice;
@@ -66,10 +65,16 @@ async function fetchFinancialData() {
             return (price / previousPrice - 1);
         });
 
-        // Calculate daily volatility (standard deviation of daily returns)
+        // Calculate mean return
         const meanReturn = returns.reduce((acc, r) => acc + r, 0) / returns.length;
+
+        // Calculate variance
         const variance = returns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / returns.length;
+
+        // Calculate daily volatility (standard deviation of daily returns)
         const dailyVolatility = Math.sqrt(variance);
+
+        // Annualize volatility
         const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100).toFixed(2); // Annualized volatility as percentage
         logDebug(`Calculated Annualized Volatility: ${annualizedVolatility}%`);
 
@@ -81,6 +86,7 @@ async function fetchFinancialData() {
             isTreasuryFalling: isTreasuryFalling,
         };
     }
+}
 
 // Helper function to determine risk category and allocation
 function determineRiskCategory(data) {
