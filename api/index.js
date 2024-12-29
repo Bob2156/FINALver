@@ -4,92 +4,78 @@ const {
     verifyKey,
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
-const axios = require("axios");
+const fetch = require("node-fetch");
 
-const HI_COMMAND = { name: "hi", description: "Say hello!" };
-const CHECK_COMMAND = { name: "check", description: "Display MFEA analysis status." };
-
-// Helper function to log debug messages
-function logDebug(message) {
-    console.log(`[DEBUG] ${message}`);
-}
-
-// Main handler
 module.exports = async (request, response) => {
-    logDebug("Received a new request");
-
+    // Validate request method
     if (request.method !== "POST") {
-        logDebug("Invalid method, returning 405");
         return response.status(405).send({ error: "Method Not Allowed" });
     }
 
+    // Verify Discord request signature
     const signature = request.headers["x-signature-ed25519"];
     const timestamp = request.headers["x-signature-timestamp"];
     const rawBody = await getRawBody(request);
 
-    const isValidRequest = verifyKey(
-        rawBody,
-        signature,
-        timestamp,
-        process.env.PUBLIC_KEY
-    );
-
-    if (!isValidRequest) {
-        console.error("[ERROR] Invalid request signature");
-        return response.status(401).send({ error: "Bad request signature" });
+    if (!verifyKey(rawBody, signature, timestamp, process.env.PUBLIC_KEY)) {
+        return response.status(401).send({ error: "Invalid Request Signature" });
     }
 
     const message = JSON.parse(rawBody);
-    logDebug(`Message type: ${message.type}`);
 
+    // Handle PING requests
     if (message.type === InteractionType.PING) {
-        logDebug("Handling PING");
         return response.send({ type: InteractionResponseType.PONG });
     }
 
-    if (message.type === InteractionType.APPLICATION_COMMAND) {
-        switch (message.data.name.toLowerCase()) {
-            case HI_COMMAND.name.toLowerCase():
-                logDebug("Handling /hi command");
-                response.send({
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: { content: "Hello!" },
-                });
-                logDebug("/hi command successfully executed");
-                break;
+    // Handle the /check command
+    if (message.type === InteractionType.APPLICATION_COMMAND && message.data.name.toLowerCase() === "check") {
+        try {
+            // Fetch S&P 500 and 3-Month Treasury Rate
+            const [sp500Response, treasuryResponse] = await Promise.all([
+                fetch("https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=21d"),
+                fetch("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX"),
+            ]);
 
-            case CHECK_COMMAND.name.toLowerCase():
-                logDebug("Handling /check command");
+            const sp500Data = await sp500Response.json();
+            const treasuryData = await treasuryResponse.json();
 
-                // Send the formatted embed
-                response.send({
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: {
-                        embeds: [
-                            {
-                                title: "MFEA Analysis Status",
-                                color: 3447003, // Blue banner
-                                fields: [
-                                    { name: "SMA", value: "Working", inline: true },
-                                    { name: "Volatility", value: "Working", inline: true },
-                                    { name: "3-month Treasury Bill", value: "Working", inline: true },
-                                ],
-                                footer: {
-                                    text: "MFEA Recommendation: Still working on it",
-                                },
-                            },
-                        ],
-                    },
-                });
-                logDebug("/check command successfully executed");
-                break;
+            const sp500Price = sp500Data.chart.result[0].meta.regularMarketPrice;
+            const treasuryRate = treasuryData.chart.result[0].meta.regularMarketPrice;
 
-            default:
-                console.error("[ERROR] Unknown command");
-                return response.status(400).send({ error: "Unknown Command" });
+            // Calculate 21-day annualized volatility
+            const prices = sp500Data.chart.result[0].indicators.adjclose[0].adjclose;
+            const returns = prices.slice(1).map((p, i) => (p / prices[i] - 1));
+            const dailyVolatility = Math.sqrt(
+                returns.reduce((sum, r) => sum + r ** 2, 0) / returns.length
+            );
+            const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100).toFixed(2);
+
+            // Send response back to Discord
+            return response.send({
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                data: {
+                    embeds: [
+                        {
+                            title: "MFEA Analysis Status",
+                            color: 3447003,
+                            fields: [
+                                { name: "S&P 500 Price", value: `$${sp500Price}`, inline: true },
+                                { name: "3-Month Treasury Rate", value: `${treasuryRate}%`, inline: true },
+                                { name: "S&P 500 Volatility (21 days, annualized)", value: `${annualizedVolatility}%`, inline: false },
+                            ],
+                        },
+                    ],
+                },
+            });
+        } catch {
+            return response.send({
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                data: { content: "Failed to fetch financial data. Please try again later." },
+            });
         }
-    } else {
-        console.error("[ERROR] Unknown request type");
-        return response.status(400).send({ error: "Unknown Type" });
     }
+
+    // Unknown type or command
+    return response.status(400).send({ error: "Unknown Type or Command" });
 };
