@@ -4,28 +4,7 @@ const {
     verifyKey,
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
-const yahooFinance = require("yahoo-finance2").default;
 const axios = require("axios");
-
-const HI_COMMAND = { name: "hi", description: "Say hello!" };
-const CHECK_COMMAND = { name: "check", description: "Run MFEA analysis." };
-
-// Helper function to fetch with timeout
-async function fetchWithTimeout(fetchFn, timeoutMessage, timeout = 2000) {
-    try {
-        console.log(`[DEBUG] Starting fetch with timeout: ${timeout}ms`);
-        return await Promise.race([
-            fetchFn(),
-            new Promise((_, reject) =>
-                setTimeout(() => reject(new Error(timeoutMessage)), timeout)
-            ),
-        ]);
-    } catch (error) {const {
-    InteractionResponseType,
-    InteractionType,
-    verifyKey,
-} = require("discord-interactions");
-const getRawBody = require("raw-body");
 
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
 const CHECK_COMMAND = { name: "check", description: "Run MFEA analysis." };
@@ -113,4 +92,3 @@ module.exports = async (request, response) => {
         return response.status(400).send({ error: "Unknown Type" });
     }
 };
-
