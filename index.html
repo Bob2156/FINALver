@@ -1,0 +1,82 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MFEA TESTING</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+    h1 {
+      color: #0070f3;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      border-radius: 5px;
+      background-color: #0070f3;
+      color: white;
+      margin-top: 20px;
+    }
+    .result {
+      margin-top: 20px;
+      font-size: 18px;
+    }
+    .error {
+      color: red;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>MFEA TESTING</h1>
+  <p>Click the button below to fetch financial data.</p>
+  <button id="fetchDataBtn">Fetch Data</button>
+  <div class="result" id="result"></div>
+  <div class="error" id="error"></div>
+
+  <script>
+    document.getElementById("fetchDataBtn").addEventListener("click", async () => {
+      const resultDiv = document.getElementById("result");
+      const errorDiv = document.getElementById("error");
+
+      // Reset the result and error sections
+      resultDiv.innerHTML = "Loading...";
+      errorDiv.innerHTML = "";
+
+      try {
+        // Fetch data from the API
+        const response = await fetch("/api/fetchData");
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch data.");
+        }
+
+        const data = await response.json();
+
+        // Display the fetched data
+        resultDiv.innerHTML = `
+          <p><strong>S&P 500:</strong> $${data.sp500}</p>
+          <p><strong>3-Month Treasury Rate:</strong> ${data.treasuryRate}%</p>
+          <p><strong>S&P 500 Volatility (21 days, annualized):</strong> ${data.sp500Volatility}</p>
+        `;
+      } catch (error) {
+        // Show error message if something goes wrong
+        errorDiv.innerHTML = `Error: ${error.message}`;
+        console.error("Error fetching data:", error);
+      } finally {
+        // Clear the "Loading..." text if it is still visible
+        if (resultDiv.innerHTML === "Loading...") {
+          resultDiv.innerHTML = "";
+        }
+      }
+    });
+  </script>
+</body>
+</html>
