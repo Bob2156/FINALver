@@ -42,6 +42,10 @@ async function fetchFinancialData() {
         const sma220 = (sum220 / 220).toFixed(2);
         logDebug(`220-day SMA: ${sma220}`);
 
+        // Determine if SPY is over or under the 220-day SMA
+        const spyStatus = spyPrice > sma220 ? "Over" : "Under";
+        logDebug(`SPY Status: ${spyStatus} the 220-day SMA`);
+
         // Extract 3-Month Treasury Rate
         const treasuryRates = treasuryData.chart.result[0].indicators.quote[0].close;
         if (!treasuryRates || treasuryRates.length === 0) {
@@ -78,15 +82,12 @@ async function fetchFinancialData() {
         return {
             spy: parseFloat(spyPrice).toFixed(2),
             sma220: parseFloat(sma220).toFixed(2),
+            spyStatus: spyStatus, // Added SPY Status
             volatility: parseFloat(annualizedVolatility).toFixed(2),
             treasuryRate: parseFloat(currentTreasuryRate).toFixed(2),
             isTreasuryFalling: isTreasuryFalling,
         };
-    } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error("Failed to fetch financial data");
     }
-}
 
 // Helper function to determine risk category and allocation
 function determineRiskCategory(data) {
@@ -227,6 +228,7 @@ module.exports = async (req, res) => {
                                     fields: [
                                         { name: "SPY Price", value: `$${financialData.spy}`, inline: true },
                                         { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
+                                        { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true }, // Added SPY Status
                                         { name: "Volatility", value: `${financialData.volatility}%`, inline: true },
                                         { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
                                         { name: "Treasury Rate Trend", value: financialData.isTreasuryFalling ? "Falling" : "Not Falling", inline: true },
