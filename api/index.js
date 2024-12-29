@@ -42,7 +42,6 @@ async function fetchFinancialData() {
         logDebug(`220-day SMA: ${sma220}`);
 
         // Extract 3-Month Treasury Rate
-        // Corrected to use 'close' instead of 'adjclose'
         const treasuryRates = treasuryData.chart.result[0].indicators.quote[0].close;
         if (!treasuryRates || treasuryRates.length === 0) {
             throw new Error("Treasury rate data is unavailable.");
@@ -58,22 +57,20 @@ async function fetchFinancialData() {
         const isTreasuryFalling = currentTreasuryRate < oneMonthAgoTreasuryRate;
         logDebug(`Is Treasury Rate Falling: ${isTreasuryFalling}`);
 
-        // Calculate Volatility from S&P 500 Historical Data
-        const returns = sp500Prices.slice(1).map((price, index) => {
+        // Calculate Volatility from S&P 500 Historical Data (21-Day Volatility)
+        const dailyReturns = sp500Prices.slice(1).map((price, index) => {
             const previousPrice = sp500Prices[index];
             return (price / previousPrice - 1);
         });
 
-        // Calculate mean return
-        const meanReturn = returns.reduce((acc, r) => acc + r, 0) / returns.length;
+        const recentReturns = dailyReturns.slice(-21); // Last 21 daily returns
+        if (recentReturns.length < 21) {
+            throw new Error("Not enough data to calculate 21-day volatility.");
+        }
 
-        // Calculate variance
-        const variance = returns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / returns.length;
-
-        // Calculate daily volatility (standard deviation of daily returns)
+        const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length;
+        const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length;
         const dailyVolatility = Math.sqrt(variance);
-
-        // Annualize volatility
         const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100).toFixed(2); // Annualized volatility as percentage
         logDebug(`Calculated Annualized Volatility: ${annualizedVolatility}%`);
 
@@ -84,11 +81,7 @@ async function fetchFinancialData() {
             treasuryRate: parseFloat(currentTreasuryRate).toFixed(2),
             isTreasuryFalling: isTreasuryFalling,
         };
-    } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error("Failed to fetch financial data");
     }
-}
 
 // Helper function to determine risk category and allocation
 function determineRiskCategory(data) {
