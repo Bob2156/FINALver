@@ -87,7 +87,11 @@ async function fetchFinancialData() {
             treasuryRate: parseFloat(currentTreasuryRate).toFixed(2),
             isTreasuryFalling: isTreasuryFalling,
         };
+    } catch (error) {
+        console.error("Error fetching financial data:", error);
+        throw new Error("Failed to fetch financial data");
     }
+}
 
 // Helper function to determine risk category and allocation
 function determineRiskCategory(data) {
