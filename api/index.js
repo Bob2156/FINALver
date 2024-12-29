@@ -1,3 +1,4 @@
+// api/index.js
 const {
     InteractionResponseType,
     InteractionType,
@@ -6,6 +7,7 @@ const {
 const getRawBody = require("raw-body");
 const axios = require("axios");
 
+// Define your commands
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
 const CHECK_COMMAND = { name: "check", description: "Display MFEA analysis status." };
 
@@ -15,17 +17,27 @@ function logDebug(message) {
 }
 
 // Main handler
-module.exports = async (request, response) => {
+module.exports = async (req, res) => {
     logDebug("Received a new request");
 
-    if (request.method !== "POST") {
+    if (req.method !== "POST") {
         logDebug("Invalid method, returning 405");
-        return response.status(405).send({ error: "Method Not Allowed" });
+        res.status(405).json({ error: "Method Not Allowed" });
+        return;
     }
 
-    const signature = request.headers["x-signature-ed25519"];
-    const timestamp = request.headers["x-signature-timestamp"];
-    const rawBody = await getRawBody(request);
+    const signature = req.headers["x-signature-ed25519"];
+    const timestamp = req.headers["x-signature-timestamp"];
+
+    if (!signature || !timestamp) {
+        console.error("[ERROR] Missing signature or timestamp headers");
+        res.status(401).json({ error: "Bad request signature" });
+        return;
+    }
+
+    const rawBody = await getRawBody(req, {
+        encoding: "utf-8",
+    });
 
     const isValidRequest = verifyKey(
         rawBody,
@@ -36,7 +48,8 @@ module.exports = async (request, response) => {
 
     if (!isValidRequest) {
         console.error("[ERROR] Invalid request signature");
-        return response.status(401).send({ error: "Bad request signature" });
+        res.status(401).json({ error: "Bad request signature" });
+        return;
     }
 
     const message = JSON.parse(rawBody);
@@ -44,14 +57,16 @@ module.exports = async (request, response) => {
 
     if (message.type === InteractionType.PING) {
         logDebug("Handling PING");
-        return response.send({ type: InteractionResponseType.PONG });
+        res.status(200).json({ type: InteractionResponseType.PONG });
+        return;
     }
 
     if (message.type === InteractionType.APPLICATION_COMMAND) {
-        switch (message.data.name.toLowerCase()) {
+        const commandName = message.data.name.toLowerCase();
+        switch (commandName) {
             case HI_COMMAND.name.toLowerCase():
                 logDebug("Handling /hi command");
-                response.send({
+                res.status(200).json({
                     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                     data: { content: "Hello!" },
                 });
@@ -62,7 +77,7 @@ module.exports = async (request, response) => {
                 logDebug("Handling /check command");
 
                 // Send the formatted embed
-                response.send({
+                res.status(200).json({
                     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                     data: {
                         embeds: [
@@ -86,10 +101,10 @@ module.exports = async (request, response) => {
 
             default:
                 console.error("[ERROR] Unknown command");
-                return response.status(400).send({ error: "Unknown Command" });
+                res.status(400).json({ error: "Unknown Command" });
         }
     } else {
         console.error("[ERROR] Unknown request type");
-        return response.status(400).send({ error: "Unknown Type" });
+        res.status(400).json({ error: "Unknown Type" });
     }
 };
