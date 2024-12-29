@@ -4,9 +4,34 @@ const {
     verifyKey,
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
+const axios = require("axios");
 
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
 const CHECK_COMMAND = { name: "check", description: "Respond with 'working'." };
+
+// Helper function to fetch the 3-month Treasury Bill rate
+async function fetchTreasuryRate() {
+    console.log("[DEBUG] Attempting to fetch 3-month Treasury Bill rate...");
+    const url = "https://www.cnbc.com/quotes/US3M";
+    try {
+        const response = await axios.get(url);
+        if (response.status === 200) {
+            const match = response.data.match(/lastPrice[^>]+>([\d.]+)%/);
+            if (match) {
+                const rate = parseFloat(match[1]);
+                console.log(`[DEBUG] Fetched Treasury Rate: ${rate}%`);
+                return rate;
+            } else {
+                throw new Error("Failed to parse Treasury rate from response.");
+            }
+        } else {
+            throw new Error(`HTTP Error: ${response.status}`);
+        }
+    } catch (error) {
+        console.error("[ERROR] Failed to fetch Treasury rate:", error.message);
+        return null;
+    }
+}
 
 // Main handler
 module.exports = async (request, response) => {
@@ -51,10 +76,28 @@ module.exports = async (request, response) => {
 
             case CHECK_COMMAND.name.toLowerCase():
                 console.log("[DEBUG] Handling /check command");
-                return response.send({
+                response.status(200).send({
                     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                     data: { content: "working" },
                 });
+
+                // Fetch and log the 3-month Treasury Bill rate
+                try {
+                    const treasuryRate = await fetchTreasuryRate();
+                    if (treasuryRate !== null) {
+                        console.log(
+                            `[DEBUG] Successfully fetched Treasury Rate: ${treasuryRate}%`
+                        );
+                    } else {
+                        console.log("[DEBUG] Treasury Rate is not available.");
+                    }
+                } catch (error) {
+                    console.error(
+                        "[ERROR] An unexpected error occurred while fetching the Treasury Rate:",
+                        error.message
+                    );
+                }
+                break;
 
             default:
                 console.error("[ERROR] Unknown command");
