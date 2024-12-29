@@ -4,7 +4,7 @@ const {
     verifyKey,
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
-const fetch = require("node-fetch");
+const axios = require("axios");
 
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
 const CHECK_COMMAND = { name: "check", description: "Display MFEA analysis status." };
@@ -12,40 +12,6 @@ const CHECK_COMMAND = { name: "check", description: "Display MFEA analysis statu
 // Helper function to log debug messages
 function logDebug(message) {
     console.log(`[DEBUG] ${message}`);
-}
-
-// Financial Data Fetcher
-async function fetchFinancialData() {
-    try {
-        const [sp500Response, treasuryResponse] = await Promise.all([
-            fetch("https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=21d"),
-            fetch("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX"),
-        ]);
-
-        const sp500Data = await sp500Response.json();
-        const treasuryData = await treasuryResponse.json();
-
-        // Extract S&P 500 price
-        const sp500Price = sp500Data.chart.result[0].meta.regularMarketPrice;
-
-        // Extract 3-Month Treasury Rate
-        const treasuryRate = treasuryData.chart.result[0].meta.regularMarketPrice;
-
-        // Calculate volatility
-        const prices = sp500Data.chart.result[0].indicators.adjclose[0].adjclose.filter(price => typeof price === 'number' && !isNaN(price));
-        const returns = prices.slice(1).map((p, i) => (p / prices[i] - 1));
-        const dailyVolatility = Math.sqrt(returns.reduce((sum, r) => sum + r ** 2, 0) / returns.length);
-        const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100).toFixed(2);
-
-        return {
-            sp500Price,
-            treasuryRate,
-            sp500Volatility: `${annualizedVolatility}%`,
-        };
-    } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error("Failed to fetch financial data");
-    }
 }
 
 // Main handler
@@ -95,35 +61,27 @@ module.exports = async (request, response) => {
             case CHECK_COMMAND.name.toLowerCase():
                 logDebug("Handling /check command");
 
-                try {
-                    const { sp500Price, treasuryRate, sp500Volatility } = await fetchFinancialData();
-
-                    response.send({
-                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: {
-                            embeds: [
-                                {
-                                    title: "MFEA Analysis Status",
-                                    color: 3447003, // Blue banner
-                                    fields: [
-                                        { name: "S&P 500 Price", value: `$${sp500Price}`, inline: true },
-                                        { name: "3-Month Treasury Rate", value: `${treasuryRate}%`, inline: true },
-                                        { name: "Volatility", value: sp500Volatility, inline: true },
-                                    ],
-                                    footer: {
-                                        text: "MFEA Recommendation: Still working on it",
-                                    },
+                // Send the formatted embed
+                response.send({
+                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                    data: {
+                        embeds: [
+                            {
+                                title: "MFEA Analysis Status",
+                                color: 3447003, // Blue banner
+                                fields: [
+                                    { name: "SMA", value: "Working", inline: true },
+                                    { name: "Volatility", value: "Working", inline: true },
+                                    { name: "3-month Treasury Bill", value: "Working", inline: true },
+                                ],
+                                footer: {
+                                    text: "MFEA Recommendation: Still working on it",
                                 },
-                            ],
-                        },
-                    });
-                    logDebug("/check command successfully executed");
-                } catch (error) {
-                    response.status(500).send({
-                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { content: "Failed to fetch financial data. Please try again later." },
-                    });
-                }
+                            },
+                        ],
+                    },
+                });
+                logDebug("/check command successfully executed");
                 break;
 
             default:
