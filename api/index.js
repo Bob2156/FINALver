@@ -4,10 +4,9 @@ const {
     verifyKey,
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
-const axios = require("axios");
 
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
-const CHECK_COMMAND = { name: "check", description: "Run MFEA analysis." };
+const CHECK_COMMAND = { name: "check", description: "Respond with 'working'." };
 
 // Main handler
 module.exports = async (request, response) => {
@@ -52,36 +51,10 @@ module.exports = async (request, response) => {
 
             case CHECK_COMMAND.name.toLowerCase():
                 console.log("[DEBUG] Handling /check command");
-
-                // Send a deferred response
-                response.status(200).send({
-                    type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+                return response.send({
+                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                    data: { content: "working" },
                 });
-
-                const DISCORD_WEBHOOK_URL = `https://discord.com/api/v10/webhooks/${process.env.APPLICATION_ID}/${message.token}`;
-
-                try {
-                    console.log("[DEBUG] Sending fixed values...");
-
-                    const result = `
-**MFEA Analysis Results:**
-- **Item 1:** 100
-- **Item 2:** 200
-- **Item 3:** 300
-                    `;
-
-                    console.log("[DEBUG] Sending final response to Discord");
-                    await axios.post(DISCORD_WEBHOOK_URL, { content: result });
-                } catch (error) {
-                    console.error("[ERROR] Failed to send response to Discord:", error.message);
-                    await axios.post(DISCORD_WEBHOOK_URL, {
-                        content: `**MFEA Analysis Results:**
-- **Item 1:** Not available
-- **Item 2:** Not available
-- **Item 3:** Not available`,
-                    });
-                }
-                break;
 
             default:
                 console.error("[ERROR] Unknown command");
