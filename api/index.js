@@ -77,18 +77,22 @@ module.exports = async (request, response) => {
             case CHECK_COMMAND.name.toLowerCase():
                 console.log("[DEBUG] Handling /check command");
 
-                // Send initial response with "working" for all three items
+                // Send the formatted embed
                 return response.send({
                     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                     data: {
                         embeds: [
                             {
                                 title: "MFEA Analysis Status",
+                                color: 3447003, // Blue banner
                                 fields: [
-                                    { name: "3-month Treasury Bill", value: "Working..." },
-                                    { name: "SMA and Volatility", value: "Working..." },
-                                    { name: "Overall Recommendation", value: "Working..." },
+                                    { name: "SMA", value: "Working", inline: true },
+                                    { name: "Volatility", value: "Working", inline: true },
+                                    { name: "3-month Treasury Bill", value: "Working", inline: true },
                                 ],
+                                footer: {
+                                    text: "MFEA Analysis",
+                                },
                             },
                         ],
                     },
