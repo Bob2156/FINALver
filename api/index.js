@@ -23,7 +23,6 @@ async function fetchFinancialData() {
         const [sp500Response, treasuryResponse] = await Promise.all([
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=220d"),
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=30d"), // Fetch 30 days for Treasury rate
-            // Removed VIX fetching as per user request
         ]);
 
         const sp500Data = sp500Response.data;
@@ -85,7 +84,11 @@ async function fetchFinancialData() {
             treasuryRate: parseFloat(currentTreasuryRate).toFixed(2),
             isTreasuryFalling: isTreasuryFalling,
         };
+    } catch (error) {
+        console.error("Error fetching financial data:", error);
+        throw new Error("Failed to fetch financial data");
     }
+}
 
 // Helper function to determine risk category and allocation
 function determineRiskCategory(data) {
