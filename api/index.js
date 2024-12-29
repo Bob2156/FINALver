@@ -232,12 +232,20 @@ module.exports = async (req, res) => {
                                     fields: [
                                         { name: "SPY Price", value: `$${financialData.spy}`, inline: true },
                                         { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
-                                        { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true }, // Added SPY Status
+                                        { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true },
                                         { name: "Volatility", value: `${financialData.volatility}%`, inline: true },
                                         { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
                                         { name: "Treasury Rate Trend", value: financialData.isTreasuryFalling ? "Falling" : "Not Falling", inline: true },
-                                        { name: "Risk Category", value: category, inline: false },
-                                        { name: "Allocation Recommendation", value: allocation, inline: false },
+                                        { 
+                                            name: "📈 **Risk Category**", 
+                                            value: category, 
+                                            inline: false 
+                                        },
+                                        { 
+                                            name: "💡 **Allocation Recommendation**", 
+                                            value: `**100% UPRO (3× leveraged S&P 500)** or **3×(100% SPY)**`, 
+                                            inline: false 
+                                        },
                                     ],
                                     footer: {
                                         text: "MFEA Recommendation based on current market conditions",
@@ -266,3 +274,4 @@ module.exports = async (req, res) => {
         res.status(400).json({ error: "Unknown Type" });
     }
 };
+
