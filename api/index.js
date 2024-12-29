@@ -20,25 +20,25 @@ function logDebug(message) {
 // Helper function to fetch financial data
 async function fetchFinancialData() {
     try {
-        // Fetch S&P 500 (price and historical data for 220 days) and Treasury Rate (30 days) concurrently
-        const [sp500Response, treasuryResponse] = await Promise.all([
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=220d"),
+        // Fetch SPY (price and historical data for 220 days) and Treasury Rate (30 days) concurrently
+        const [spyResponse, treasuryResponse] = await Promise.all([
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=30d"), // Fetch 30 days for Treasury rate
         ]);
 
-        const sp500Data = sp500Response.data;
+        const spyData = spyResponse.data;
         const treasuryData = treasuryResponse.data;
 
-        // Extract S&P 500 price
-        const sp500Price = sp500Data.chart.result[0].meta.regularMarketPrice;
-        logDebug(`S&P 500 Price: ${sp500Price}`);
+        // Extract SPY price
+        const spyPrice = spyData.chart.result[0].meta.regularMarketPrice;
+        logDebug(`SPY Price: ${spyPrice}`);
 
-        // Extract 220-day SMA
-        const sp500Prices = sp500Data.chart.result[0].indicators.adjclose[0].adjclose;
-        if (sp500Prices.length < 220) {
+        // Extract 220-day SMA from Adjusted Close
+        const spyAdjClosePrices = spyData.chart.result[0].indicators.adjclose[0].adjclose;
+        if (spyAdjClosePrices.length < 220) {
             throw new Error("Not enough data to calculate 220-day SMA.");
         }
-        const sum220 = sp500Prices.slice(-220).reduce((acc, price) => acc + price, 0);
+        const sum220 = spyAdjClosePrices.slice(-220).reduce((acc, price) => acc + price, 0);
         const sma220 = (sum220 / 220).toFixed(2);
         logDebug(`220-day SMA: ${sma220}`);
 
@@ -58,9 +58,9 @@ async function fetchFinancialData() {
         const isTreasuryFalling = currentTreasuryRate < oneMonthAgoTreasuryRate;
         logDebug(`Is Treasury Rate Falling: ${isTreasuryFalling}`);
 
-        // Calculate Volatility from S&P 500 Historical Data (21-Day Volatility)
-        const dailyReturns = sp500Prices.slice(1).map((price, index) => {
-            const previousPrice = sp500Prices[index];
+        // Calculate Volatility from SPY Historical Data (21-Day Volatility)
+        const dailyReturns = spyAdjClosePrices.slice(1).map((price, index) => {
+            const previousPrice = spyAdjClosePrices[index];
             return (price / previousPrice - 1);
         });
 
@@ -76,25 +76,21 @@ async function fetchFinancialData() {
         logDebug(`Calculated Annualized Volatility: ${annualizedVolatility}%`);
 
         return {
-            sp500: parseFloat(sp500Price).toFixed(2),
+            spy: parseFloat(spyPrice).toFixed(2),
             sma220: parseFloat(sma220).toFixed(2),
             volatility: parseFloat(annualizedVolatility).toFixed(2),
             treasuryRate: parseFloat(currentTreasuryRate).toFixed(2),
             isTreasuryFalling: isTreasuryFalling,
         };
-    } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error("Failed to fetch financial data");
     }
-}
 
 // Helper function to determine risk category and allocation
 function determineRiskCategory(data) {
-    const { sp500, sma220, volatility, treasuryRate, isTreasuryFalling } = data;
+    const { spy, sma220, volatility, treasuryRate, isTreasuryFalling } = data;
 
-    logDebug(`Determining risk category with SPX: ${sp500}, SMA220: ${sma220}, Volatility: ${volatility}%, Treasury Rate: ${treasuryRate}%, Is Treasury Falling: ${isTreasuryFalling}`);
+    logDebug(`Determining risk category with SPY: ${spy}, SMA220: ${sma220}, Volatility: ${volatility}%, Treasury Rate: ${treasuryRate}%, Is Treasury Falling: ${isTreasuryFalling}`);
 
-    if (sp500 > sma220) {
+    if (spy > sma220) {
         if (volatility < 14) {
             return {
                 category: "Risk On",
@@ -119,7 +115,7 @@ function determineRiskCategory(data) {
             }
         }
     } else {
-        // When SPX ≤ 220-day SMA, do not consider volatility, directly check Treasury rate
+        // When SPY ≤ 220-day SMA, do not consider volatility, directly check Treasury rate
         if (isTreasuryFalling) {
             return {
                 category: "Risk Alt",
@@ -225,7 +221,7 @@ module.exports = async (req, res) => {
                                     title: "MFEA Analysis Status",
                                     color: 3447003, // Blue banner
                                     fields: [
-                                        { name: "S&P 500 Price", value: `$${financialData.sp500}`, inline: true },
+                                        { name: "SPY Price", value: `$${financialData.spy}`, inline: true },
                                         { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
                                         { name: "Volatility", value: `${financialData.volatility}%`, inline: true },
                                         { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
@@ -245,7 +241,7 @@ module.exports = async (req, res) => {
                     console.error("[ERROR] Failed to fetch financial data for /check command", error);
                     res.status(500).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { content: "Failed to fetch financial data." }
+                        data: { content: "⚠️ Unable to retrieve financial data at this time. Please try again later." }
                     });
                 }
 
