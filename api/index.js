@@ -19,52 +19,105 @@ function logDebug(message) {
 // Helper function to fetch financial data
 async function fetchFinancialData() {
     try {
-        // Fetch S&P 500 (price and historical data for 220 days) and Treasury Rate concurrently
-        const [sp500Response, treasuryResponse] = await Promise.all([
+        // Fetch S&P 500 (price and historical data for 220 days), Treasury Rate (30 days), and VIX concurrently
+        const [sp500Response, treasuryResponse, vixResponse] = await Promise.all([
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=220d"),
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX"),
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=30d"), // Fetch 30 days for Treasury rate
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1d"), // Latest VIX value
         ]);
 
         const sp500Data = sp500Response.data;
         const treasuryData = treasuryResponse.data;
+        const vixData = vixResponse.data;
 
         // Extract S&P 500 price
         const sp500Price = sp500Data.chart.result[0].meta.regularMarketPrice;
 
-        // Extract 3-Month Treasury Rate
-        const treasuryRate = treasuryData.chart.result[0].meta.regularMarketPrice;
-
-        // Calculate 220-day SMA
-        const prices = sp500Data.chart.result[0].indicators.adjclose[0].adjclose; // Historical adjusted close prices
-        if (prices.length < 220) {
+        // Extract 220-day SMA
+        const sp500Prices = sp500Data.chart.result[0].indicators.adjclose[0].adjclose;
+        if (sp500Prices.length < 220) {
             throw new Error("Not enough data to calculate 220-day SMA.");
         }
+        const sma220 = (sp500Prices.slice(-220).reduce((acc, price) => acc + price, 0) / 220).toFixed(2);
 
-        // Calculate the 220-day SMA
-        const sum = prices.slice(-220).reduce((acc, price) => acc + price, 0);
-        const sma220 = (sum / 220).toFixed(2);
+        // Extract 3-Month Treasury Rate
+        const treasuryRates = treasuryData.chart.result[0].indicators.adjclose[0].adjclose;
+        const currentTreasuryRate = treasuryRates[treasuryRates.length - 1];
+        const oneMonthAgoTreasuryRate = treasuryRates.length >= 30 ? treasuryRates[treasuryRates.length - 30] : treasuryRates[0]; // Handle cases with less than 30 data points
 
-        // Calculate volatility (using last 21 days)
-        const last21Prices = prices.slice(-21);
-        const returns = last21Prices.slice(1).map((p, i) => (p / last21Prices[i] - 1));
-        const dailyVolatility = Math.sqrt(
-            returns.reduce((sum, r) => sum + r ** 2, 0) / returns.length
-        ); // Standard deviation
-        const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100).toFixed(2); // Annualized volatility as percentage
+        // Determine if Treasury rate is falling
+        const isTreasuryFalling = currentTreasuryRate < oneMonthAgoTreasuryRate;
 
-        // Determine if S&P 500 is over 220 SMA
-        const isOverSMA = sp500Price > sma220 ? "✅ Over 220 SMA" : "❌ Under 220 SMA";
+        // Extract Volatility (VIX)
+        const vixValues = vixData.chart.result[0].indicators.quote[0].close;
+        const currentVix = vixValues[vixValues.length - 1];
+        if (currentVix === null || currentVix === undefined) {
+            throw new Error("VIX data is unavailable.");
+        }
+
+        // Calculate volatility (using VIX as a proxy)
+        const volatility = parseFloat(currentVix).toFixed(2); // VIX is typically expressed as a percentage
 
         return {
-            sp500: sp500Price,
-            sma220: sma220,
-            isOverSMA: isOverSMA,
-            treasuryRate: treasuryRate,
-            sp500Volatility: `${annualizedVolatility}%`,
+            sp500: parseFloat(sp500Price).toFixed(2),
+            sma220: parseFloat(sma220).toFixed(2),
+            volatility: parseFloat(volatility).toFixed(2),
+            treasuryRate: parseFloat(currentTreasuryRate).toFixed(2),
+            isTreasuryFalling: isTreasuryFalling,
         };
     } catch (error) {
         console.error("Error fetching financial data:", error);
         throw new Error("Failed to fetch financial data");
+    }
+}
+
+// Helper function to determine risk category and allocation
+function determineRiskCategory(data) {
+    const { sp500, sma220, volatility, treasuryRate, isTreasuryFalling } = data;
+
+    if (sp500 > sma220) {
+        if (volatility < 14) {
+            return {
+                category: "Risk On",
+                allocation: "100% UPRO (3× leveraged S&P 500) or 3×(100% SPY)",
+            };
+        } else if (volatility < 24) {
+            return {
+                category: "Risk Mid",
+                allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)",
+            };
+        } else {
+            if (isTreasuryFalling) {
+                return {
+                    category: "Risk Alt",
+                    allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
+                };
+            } else {
+                return {
+                    category: "Risk Off",
+                    allocation: "100% SPY or 1×(100% SPY)",
+                };
+            }
+        }
+    } else {
+        if (volatility < 24) {
+            return {
+                category: "Risk Mid",
+                allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)",
+            };
+        } else {
+            if (isTreasuryFalling) {
+                return {
+                    category: "Risk Alt",
+                    allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
+                };
+            } else {
+                return {
+                    category: "Risk Off",
+                    allocation: "100% SPY or 1×(100% SPY)",
+                };
+            }
+        }
     }
 }
 
@@ -132,7 +185,10 @@ module.exports = async (req, res) => {
                     // Fetch financial data
                     const financialData = await fetchFinancialData();
 
-                    // Send the formatted embed with actual data
+                    // Determine risk category and allocation
+                    const { category, allocation } = determineRiskCategory(financialData);
+
+                    // Send the formatted embed with actual data and recommendation
                     res.status(200).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: {
@@ -143,12 +199,14 @@ module.exports = async (req, res) => {
                                     fields: [
                                         { name: "S&P 500 Price", value: `$${financialData.sp500}`, inline: true },
                                         { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
-                                        { name: "Status", value: financialData.isOverSMA, inline: true },
-                                        { name: "Volatility", value: financialData.sp500Volatility, inline: true },
-                                        { name: "3-Month Treasury Bill", value: `${financialData.treasuryRate}%`, inline: true },
+                                        { name: "Volatility (VIX)", value: `${financialData.volatility}%`, inline: true },
+                                        { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
+                                        { name: "Status", value: financialData.isTreasuryFalling ? "3-Month Treasury Rate is Falling" : "3-Month Treasury Rate is Not Falling", inline: true },
+                                        { name: "Risk Category", value: category, inline: false },
+                                        { name: "Allocation Recommendation", value: allocation, inline: false },
                                     ],
                                     footer: {
-                                        text: "MFEA Recommendation: Still working on it",
+                                        text: "MFEA Recommendation based on current market conditions",
                                     },
                                 },
                             ],
