@@ -39,7 +39,8 @@ async function fetchFinancialData() {
         if (sp500Prices.length < 220) {
             throw new Error("Not enough data to calculate 220-day SMA.");
         }
-        const sma220 = (sp500Prices.slice(-220).reduce((acc, price) => acc + price, 0) / 220).toFixed(2);
+        const sum220 = sp500Prices.slice(-220).reduce((acc, price) => acc + price, 0);
+        const sma220 = (sum220 / 220).toFixed(2);
         logDebug(`220-day SMA: ${sma220}`);
 
         // Extract 3-Month Treasury Rate
