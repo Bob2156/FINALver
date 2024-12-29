@@ -86,7 +86,6 @@ async function fetchFinancialData() {
             isTreasuryFalling: isTreasuryFalling,
         };
     }
-}
 
 // Helper function to determine risk category and allocation
 function determineRiskCategory(data) {
