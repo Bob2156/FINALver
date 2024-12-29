@@ -23,7 +23,7 @@ async function fetchFinancialData() {
         const [sp500Response, treasuryResponse, vixResponse] = await Promise.all([
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=220d"),
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=30d"), // Fetch 30 days for Treasury rate
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1d"), // Latest VIX value
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=2d"), // Fetch 2 days to ensure latest value
         ]);
 
         const sp500Data = sp500Response.data;
@@ -32,36 +32,48 @@ async function fetchFinancialData() {
 
         // Extract S&P 500 price
         const sp500Price = sp500Data.chart.result[0].meta.regularMarketPrice;
+        logDebug(`SPX Price: ${sp500Price}`);
 
         // Extract 220-day SMA
         const sp500Prices = sp500Data.chart.result[0].indicators.adjclose[0].adjclose;
         if (sp500Prices.length < 220) {
             throw new Error("Not enough data to calculate 220-day SMA.");
         }
-        const sma220 = (sp500Prices.slice(-220).reduce((acc, price) => acc + price, 0) / 220).toFixed(2);
+        const sum220 = sp500Prices.slice(-220).reduce((acc, price) => acc + price, 0);
+        const sma220 = (sum220 / 220).toFixed(2);
+        logDebug(`220-day SMA: ${sma220}`);
 
         // Extract 3-Month Treasury Rate
-        const treasuryRates = treasuryData.chart.result[0].indicators.adjclose[0].adjclose;
-        const currentTreasuryRate = treasuryRates[treasuryRates.length - 1];
-        const oneMonthAgoTreasuryRate = treasuryRates.length >= 30 ? treasuryRates[treasuryRates.length - 30] : treasuryRates[0]; // Handle cases with less than 30 data points
+        // Note: Treasury rates are typically represented under 'close', not 'adjclose'
+        const treasuryRates = treasuryData.chart.result[0].indicators.quote[0].close;
+        if (!treasuryRates || treasuryRates.length === 0) {
+            throw new Error("Treasury rate data is unavailable.");
+        }
+        const currentTreasuryRate = parseFloat(treasuryRates[treasuryRates.length - 1]).toFixed(2);
+        const oneMonthAgoTreasuryRate = treasuryRates.length >= 30
+            ? parseFloat(treasuryRates[treasuryRates.length - 30]).toFixed(2)
+            : parseFloat(treasuryRates[0]).toFixed(2); // Handle cases with less than 30 data points
+        logDebug(`Current 3-Month Treasury Rate: ${currentTreasuryRate}%`);
+        logDebug(`3-Month Treasury Rate 30 Days Ago: ${oneMonthAgoTreasuryRate}%`);
 
         // Determine if Treasury rate is falling
         const isTreasuryFalling = currentTreasuryRate < oneMonthAgoTreasuryRate;
+        logDebug(`Is Treasury Rate Falling: ${isTreasuryFalling}`);
 
         // Extract Volatility (VIX)
         const vixValues = vixData.chart.result[0].indicators.quote[0].close;
-        const currentVix = vixValues[vixValues.length - 1];
-        if (currentVix === null || currentVix === undefined) {
+        // Handle cases where VIX might not be available or null
+        const validVixValues = vixValues.filter(v => v !== null && v !== undefined);
+        const currentVix = validVixValues.length > 0 ? parseFloat(validVixValues[validVixValues.length - 1]).toFixed(2) : null;
+        if (currentVix === null) {
             throw new Error("VIX data is unavailable.");
         }
-
-        // Calculate volatility (using VIX as a proxy)
-        const volatility = parseFloat(currentVix).toFixed(2); // VIX is typically expressed as a percentage
+        logDebug(`Current VIX (Volatility): ${currentVix}%`);
 
         return {
             sp500: parseFloat(sp500Price).toFixed(2),
             sma220: parseFloat(sma220).toFixed(2),
-            volatility: parseFloat(volatility).toFixed(2),
+            volatility: parseFloat(currentVix).toFixed(2),
             treasuryRate: parseFloat(currentTreasuryRate).toFixed(2),
             isTreasuryFalling: isTreasuryFalling,
         };
@@ -74,6 +86,8 @@ async function fetchFinancialData() {
 // Helper function to determine risk category and allocation
 function determineRiskCategory(data) {
     const { sp500, sma220, volatility, treasuryRate, isTreasuryFalling } = data;
+
+    logDebug(`Determining risk category with SPX: ${sp500}, SMA220: ${sma220}, VIX: ${volatility}, Treasury Rate: ${treasuryRate}, Is Treasury Falling: ${isTreasuryFalling}`);
 
     if (sp500 > sma220) {
         if (volatility < 14) {
@@ -100,23 +114,17 @@ function determineRiskCategory(data) {
             }
         }
     } else {
-        if (volatility < 24) {
+        // When SPX <= 220-day SMA, do not consider volatility, directly check Treasury rate
+        if (isTreasuryFalling) {
             return {
-                category: "Risk Mid",
-                allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)",
+                category: "Risk Alt",
+                allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
             };
         } else {
-            if (isTreasuryFalling) {
-                return {
-                    category: "Risk Alt",
-                    allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
-                };
-            } else {
-                return {
-                    category: "Risk Off",
-                    allocation: "100% SPY or 1×(100% SPY)",
-                };
-            }
+            return {
+                category: "Risk Off",
+                allocation: "100% SPY or 1×(100% SPY)",
+            };
         }
     }
 }
@@ -140,9 +148,16 @@ module.exports = async (req, res) => {
         return;
     }
 
-    const rawBody = await getRawBody(req, {
-        encoding: "utf-8",
-    });
+    let rawBody;
+    try {
+        rawBody = await getRawBody(req, {
+            encoding: "utf-8",
+        });
+    } catch (error) {
+        console.error("[ERROR] Failed to get raw body:", error);
+        res.status(400).json({ error: "Invalid request body" });
+        return;
+    }
 
     const isValidRequest = verifyKey(
         rawBody,
@@ -157,7 +172,15 @@ module.exports = async (req, res) => {
         return;
     }
 
-    const message = JSON.parse(rawBody);
+    let message;
+    try {
+        message = JSON.parse(rawBody);
+    } catch (error) {
+        console.error("[ERROR] Failed to parse JSON:", error);
+        res.status(400).json({ error: "Invalid JSON format" });
+        return;
+    }
+
     logDebug(`Message type: ${message.type}`);
 
     if (message.type === InteractionType.PING) {
@@ -201,7 +224,7 @@ module.exports = async (req, res) => {
                                         { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
                                         { name: "Volatility (VIX)", value: `${financialData.volatility}%`, inline: true },
                                         { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
-                                        { name: "Status", value: financialData.isTreasuryFalling ? "3-Month Treasury Rate is Falling" : "3-Month Treasury Rate is Not Falling", inline: true },
+                                        { name: "Treasury Rate Trend", value: financialData.isTreasuryFalling ? "Falling" : "Not Falling", inline: true },
                                         { name: "Risk Category", value: category, inline: false },
                                         { name: "Allocation Recommendation", value: allocation, inline: false },
                                     ],
