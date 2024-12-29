@@ -7,35 +7,28 @@ const getRawBody = require("raw-body");
 const axios = require("axios");
 
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
-const CHECK_COMMAND = { name: "check", description: "Respond with 'working'." };
+const CHECK_COMMAND = { name: "check", description: "Display MFEA analysis status." };
 
 // Helper function to fetch the 3-month Treasury Bill rate
 async function fetchTreasuryRate() {
     console.log("[DEBUG] Attempting to fetch 3-month Treasury Bill rate...");
     const url = "https://www.cnbc.com/quotes/US3M";
-
     try {
-        console.log("[DEBUG] Sending request to CNBC...");
-        const response = await axios.get(url, { timeout: 5000 }); // Set a 5-second timeout
-        console.log(`[DEBUG] Received response: HTTP ${response.status}`);
-
+        const response = await axios.get(url);
         if (response.status === 200) {
-            console.log("[DEBUG] Parsing Treasury Rate...");
             const match = response.data.match(/lastPrice[^>]+>([\d.]+)%/);
             if (match) {
                 const rate = parseFloat(match[1]);
-                console.log(`[DEBUG] Successfully fetched Treasury Rate: ${rate}%`);
+                console.log(`[DEBUG] Fetched Treasury Rate: ${rate}%`);
                 return rate;
             } else {
-                console.error("[ERROR] Failed to parse Treasury rate from response.");
-                return null;
+                throw new Error("Failed to parse Treasury rate from response.");
             }
         } else {
-            console.error(`[ERROR] Unexpected HTTP status: ${response.status}`);
-            return null;
+            throw new Error(`HTTP Error: ${response.status}`);
         }
     } catch (error) {
-        console.error("[ERROR] Error during fetchTreasuryRate:", error.message);
+        console.error("[ERROR] Failed to fetch Treasury rate:", error.message);
         return null;
     }
 }
@@ -83,26 +76,23 @@ module.exports = async (request, response) => {
 
             case CHECK_COMMAND.name.toLowerCase():
                 console.log("[DEBUG] Handling /check command");
-                response.status(200).send({
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: { content: "working" },
-                });
 
-                // Fetch and log the 3-month Treasury Bill rate
-                try {
-                    const treasuryRate = await fetchTreasuryRate();
-                    if (treasuryRate !== null) {
-                        console.log(`[DEBUG] Successfully fetched Treasury Rate: ${treasuryRate}%`);
-                    } else {
-                        console.log("[DEBUG] Treasury Rate fetch failed or is unavailable.");
-                    }
-                } catch (error) {
-                    console.error(
-                        "[ERROR] An unexpected error occurred while fetching the Treasury Rate:",
-                        error.message
-                    );
-                }
-                break;
+                // Send initial response with "working" for all three items
+                return response.send({
+                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                    data: {
+                        embeds: [
+                            {
+                                title: "MFEA Analysis Status",
+                                fields: [
+                                    { name: "3-month Treasury Bill", value: "Working..." },
+                                    { name: "SMA and Volatility", value: "Working..." },
+                                    { name: "Overall Recommendation", value: "Working..." },
+                                ],
+                            },
+                        ],
+                    },
+                });
 
             default:
                 console.error("[ERROR] Unknown command");
