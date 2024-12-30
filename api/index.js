@@ -243,7 +243,7 @@ module.exports = async (req, res) => {
                                         },
                                         { 
                                             name: "💡 **Allocation Recommendation**", 
-                                            value: `**100% UPRO (3× leveraged S&P 500)** or **3×(100% SPY)**`, 
+                                            value: `**${allocation}**`, // **Fixed Allocation Recommendation**
                                             inline: false 
                                         },
                                     ],
@@ -274,4 +274,3 @@ module.exports = async (req, res) => {
         res.status(400).json({ error: "Unknown Type" });
     }
 };
-
