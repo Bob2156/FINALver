@@ -392,7 +392,7 @@ module.exports = async (req, res) => {
                     if (financialData.treasuryRateChange > 0) {
                         treasuryRateTrendValue = `⬆️ Increasing by ${financialData.treasuryRateChange}% since ${treasuryRateTimeframe}`;
                     } else if (financialData.treasuryRateChange < 0) {
-                        treasuryRateTrendValue = `⬇️ Falling by ${Math.abs(financialData.treasuryRateChange)}% since ${treasuryRateTimeframe}`;
+                        treasuryRateTrendValue = `⬇️ ${Math.abs(financialData.treasuryRateChange)}% since ${treasuryRateTimeframe}`;
                     } else {
                         treasuryRateTrendValue = "↔️ No change since last month";
                     }
