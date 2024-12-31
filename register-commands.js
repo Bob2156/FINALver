@@ -11,6 +11,31 @@ const commands = [
         name: 'check',
         description: 'Run the Market Financial Evaluation Assistant (MFEA) analysis.',
     },
+    {
+        name: 'ticker',
+        description: 'Fetch and display financial data for a specific ticker and timeframe.',
+        options: [
+            {
+                name: 'symbol',
+                type: 3, // STRING type
+                description: 'The stock ticker symbol (e.g., AAPL, GOOGL)',
+                required: true,
+            },
+            {
+                name: 'timeframe',
+                type: 3, // STRING type
+                description: 'The timeframe for the chart (1d, 1mo, 1y, 3y, 10y)',
+                required: true,
+                choices: [
+                    { name: '1 Day', value: '1d' },
+                    { name: '1 Month', value: '1mo' },
+                    { name: '1 Year', value: '1y' },
+                    { name: '3 Years', value: '3y' },
+                    { name: '10 Years', value: '10y' },
+                ],
+            },
+        ],
+    },
 ];
 
 // Create a REST instance and set the token
