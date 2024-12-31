@@ -166,7 +166,11 @@ async function fetchCheckFinancialData() {
             isTreasuryFalling: isTreasuryFalling,
             treasuryRateChange: parseFloat(treasuryRateChange).toFixed(2), // Added Treasury Rate Change
         };
+    } catch (error) {
+        console.error("Error fetching financial data:", error);
+        throw new Error("Failed to fetch financial data");
     }
+}
 
 // Helper function to fetch financial data for /ticker command
 async function fetchTickerFinancialData(ticker, range) {
@@ -281,7 +285,13 @@ async function fetchTickerFinancialData(ticker, range) {
             historicalData: aggregatedData,
             selectedRange: selectedRange,
         };
+    } catch (error) {
+        console.error("Error fetching financial data:", error);
+        throw new Error(error.response && error.response.data && error.response.data.chart && error.response.data.chart.error
+            ? error.response.data.chart.error.description
+            : "Failed to fetch financial data.");
     }
+}
 
 // Main handler
 module.exports = async (req, res) => {
