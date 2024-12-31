@@ -348,10 +348,16 @@ module.exports = async (req, res) => {
     logDebug(`Message type: ${message.type}`);
 
     if (message.type === InteractionType.PING) {
-        logDebug("Handling PING");
-        res.status(200).json({ type: InteractionResponseType.PONG });
-        logDebug("PONG sent");
-        return; // Terminate after responding
+        try {
+            logDebug("Handling PING");
+            res.status(200).json({ type: InteractionResponseType.PONG });
+            logDebug("PONG sent");
+            return; // Terminate after responding
+        } catch (error) {
+            console.error("[ERROR] Failed to handle PING:", error);
+            res.status(500).json({ error: "Internal Server Error" });
+            return; // Terminate after responding
+        }
     }
 
     if (message.type === InteractionType.APPLICATION_COMMAND) {
@@ -392,7 +398,7 @@ module.exports = async (req, res) => {
                     if (financialData.treasuryRateChange > 0) {
                         treasuryRateTrendValue = `⬆️ Increasing by ${financialData.treasuryRateChange}% since ${treasuryRateTimeframe}`;
                     } else if (financialData.treasuryRateChange < 0) {
-                        treasuryRateTrendValue = `⬇️ ${Math.abs(financialData.treasuryRateChange)}% since ${treasuryRateTimeframe}`;
+                        treasuryRateTrendValue = `⬇️ Falling by ${Math.abs(financialData.treasuryRateChange)}% since ${treasuryRateTimeframe}`;
                     } else {
                         treasuryRateTrendValue = "↔️ No change since last month";
                     }
