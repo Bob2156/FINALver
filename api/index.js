@@ -358,34 +358,43 @@ module.exports = async (req, res) => {
         const commandName = message.data.name.toLowerCase();
         switch (commandName) {
             case HI_COMMAND.name.toLowerCase():
-                logDebug("Handling /hi command");
-                res.status(200).json({
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: { content: "Hello! 👋 How can I assist you today?" },
-                });
-                logDebug("/hi command successfully executed");
-                return; // Terminate after responding
+                try {
+                    logDebug("Handling /hi command");
+                    res.status(200).json({
+                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                        data: { content: "hii <3" }, // Updated response
+                    });
+                    logDebug("/hi command successfully executed");
+                    return; // Terminate after responding
+                } catch (error) {
+                    console.error("[ERROR] Failed to execute /hi command:", error);
+                    res.status(500).json({
+                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                        data: { content: "⚠️ An error occurred while processing your request." }
+                    });
+                    return; // Terminate after responding
+                }
 
             case CHECK_COMMAND.name.toLowerCase():
-                logDebug("Handling /check command");
-
                 try {
+                    logDebug("Handling /check command");
+
                     // Fetch financial data
                     const financialData = await fetchCheckFinancialData();
 
                     // Determine risk category and allocation
                     const { category, allocation } = determineRiskCategory(financialData);
 
-                    // Determine Treasury Rate Trend with Timeframe
+                    // Determine Treasury Rate Trend with Value and Timeframe
                     let treasuryRateTrendValue = "";
                     const treasuryRateTimeframe = "last month"; // Since we fetched 30 days ago
 
                     if (financialData.treasuryRateChange > 0) {
-                        treasuryRateTrendValue = "⬆️ since " + treasuryRateTimeframe;
+                        treasuryRateTrendValue = `⬆️ Increasing by ${financialData.treasuryRateChange}% since ${treasuryRateTimeframe}`;
                     } else if (financialData.treasuryRateChange < 0) {
-                        treasuryRateTrendValue = "⬇️ since " + treasuryRateTimeframe;
+                        treasuryRateTrendValue = `⬇️ Falling by ${Math.abs(financialData.treasuryRateChange)}% since ${treasuryRateTimeframe}`;
                     } else {
-                        treasuryRateTrendValue = "↔️ No change";
+                        treasuryRateTrendValue = "↔️ No change since last month";
                     }
 
                     // Send the formatted embed with actual data and recommendation
@@ -424,7 +433,7 @@ module.exports = async (req, res) => {
                     logDebug("/check command successfully executed with fetched data");
                     return; // Terminate after responding
                 } catch (error) {
-                    console.error("[ERROR] Failed to fetch financial data for /check command", error);
+                    console.error("[ERROR] Failed to fetch financial data for /check command:", error);
                     res.status(500).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: { content: "⚠️ Unable to retrieve financial data at this time. Please try again later." }
@@ -433,40 +442,125 @@ module.exports = async (req, res) => {
                 }
 
             case TICKER_COMMAND.name.toLowerCase():
-                logDebug("Handling /ticker command");
-
-                // Extract options
-                const options = message.data.options;
-                const tickerOption = options.find(option => option.name === "symbol");
-                const timeframeOption = options.find(option => option.name === "timeframe");
-
-                const ticker = tickerOption ? tickerOption.value.toUpperCase() : null;
-                const timeframe = timeframeOption ? timeframeOption.value : '1d'; // Default to '1d' if not provided
-
-                if (!ticker) {
-                    res.status(400).json({
-                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { content: "❌ Ticker symbol is required." },
-                    });
-                    return; // Terminate after responding
-                }
-
                 try {
-                    logDebug(`Fetching data for Ticker: ${ticker}, Timeframe: ${timeframe}`);
+                    logDebug("Handling /ticker command");
 
-                    // Note: The /ticker command remains in test mode with preset values
-                    // If you wish to restore full functionality later, replace the following preset response with dynamic data fetching logic
+                    // Extract options
+                    const options = message.data.options;
+                    const tickerOption = options.find(option => option.name === "symbol");
+                    const timeframeOption = options.find(option => option.name === "timeframe");
 
-                    // Preset data for /ticker command (Test Mode)
-                    const presetTickerEmbed = {
-                        title: `${ticker} Financial Data`,
+                    const ticker = tickerOption ? tickerOption.value.toUpperCase() : null;
+                    const timeframe = timeframeOption ? timeframeOption.value : '1d'; // Default to '1d' if not provided
+
+                    if (!ticker) {
+                        res.status(400).json({
+                            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                            data: { content: "❌ Ticker symbol is required." },
+                        });
+                        return; // Terminate after responding
+                    }
+
+                    // Fetch financial data for the specified ticker and timeframe
+                    const tickerData = await fetchTickerFinancialData(ticker, timeframe);
+
+                    // Generate Chart Image URL using QuickChart.io
+                    const chartConfig = {
+                        type: 'line',
+                        data: {
+                            labels: tickerData.historicalData.map(entry => entry.date),
+                            datasets: [{
+                                label: `${tickerData.ticker} Price`,
+                                data: tickerData.historicalData.map(entry => entry.price),
+                                borderColor: '#0070f3',
+                                backgroundColor: 'rgba(0, 112, 243, 0.1)',
+                                borderWidth: 2,
+                                pointRadius: 0, // Remove points for a cleaner line
+                                fill: true,
+                            }]
+                        },
+                        options: {
+                            scales: {
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: 'Date',
+                                        color: '#333',
+                                        font: {
+                                            size: 14,
+                                        }
+                                    },
+                                    ticks: {
+                                        maxTicksLimit: 10,
+                                        color: '#333',
+                                        maxRotation: 0,
+                                        minRotation: 0,
+                                    },
+                                    grid: {
+                                        display: false,
+                                    }
+                                },
+                                y: {
+                                    title: {
+                                        display: true,
+                                        text: 'Price ($)',
+                                        color: '#333',
+                                        font: {
+                                            size: 14,
+                                        }
+                                    },
+                                    ticks: {
+                                        color: '#333',
+                                        // Chart.js handles dynamic scaling
+                                    },
+                                    grid: {
+                                        color: 'rgba(0,0,0,0.1)',
+                                        borderDash: [5, 5], // Dashed grid lines for better readability
+                                    }
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    display: true,
+                                    labels: {
+                                        color: '#333',
+                                        font: {
+                                            size: 12,
+                                        }
+                                    }
+                                },
+                                tooltip: {
+                                    enabled: true,
+                                    mode: 'index',
+                                    intersect: false,
+                                    callbacks: {
+                                        label: function(context) {
+                                            return  `$${parseFloat(context.parsed.y).toFixed(2)}`;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    };
+
+                    // Encode chart configuration as JSON
+                    const chartConfigEncoded = encodeURIComponent(JSON.stringify(chartConfig));
+
+                    // Construct QuickChart.io URL
+                    const chartUrl = `https://quickchart.io/chart?c=${chartConfigEncoded}`;
+
+                    // Create Discord embed
+                    const embed = {
+                        title: `${tickerData.ticker} Financial Data`,
                         color: 3447003, // Blue color
                         fields: [
-                            { name: "Current Price", value: `$350.75`, inline: true },
+                            { name: "Current Price", value: tickerData.currentPrice, inline: true },
                             { name: "Timeframe", value: timeframe.toUpperCase(), inline: true },
+                            { name: "Selected Range", value: timeframe.toUpperCase(), inline: true },
+                            { name: "Data Source", value: "Yahoo Finance", inline: true },
                         ],
                         image: {
-                            url: PRESET_IMAGE_URL, // Use the specified preset image URL
+                            url: chartUrl,
                         },
                         footer: {
                             text: "Data fetched from Yahoo Finance",
@@ -477,13 +571,13 @@ module.exports = async (req, res) => {
                     res.status(200).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: {
-                            embeds: [presetTickerEmbed],
+                            embeds: [embed],
                         },
                     });
-                    logDebug("/ticker command successfully executed with preset data and specified image");
+                    logDebug("/ticker command successfully executed with dynamic data and chart");
                     return; // Terminate after responding
                 } catch (error) {
-                    console.error("[ERROR] Failed to fetch financial data for /ticker command", error);
+                    console.error("[ERROR] Failed to fetch financial data for /ticker command:", error);
                     res.status(500).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: { content: "⚠️ Unable to retrieve financial data at this time. Please ensure the ticker symbol is correct and try again later." }
@@ -492,13 +586,25 @@ module.exports = async (req, res) => {
                 }
 
             default:
-                console.error("[ERROR] Unknown command");
-                res.status(400).json({ error: "Unknown Command" });
-                return; // Terminate after responding
+                try {
+                    console.error("[ERROR] Unknown command");
+                    res.status(400).json({ error: "Unknown Command" });
+                    return; // Terminate after responding
+                } catch (error) {
+                    console.error("[ERROR] Failed to handle unknown command:", error);
+                    res.status(500).json({ error: "Internal Server Error" });
+                    return; // Terminate after responding
+                }
         }
     } else {
-        console.error("[ERROR] Unknown request type");
-        res.status(400).json({ error: "Unknown Type" });
-        return; // Terminate after responding
+        try {
+            console.error("[ERROR] Unknown request type");
+            res.status(400).json({ error: "Unknown Type" });
+            return; // Terminate after responding
+        } catch (error) {
+            console.error("[ERROR] Failed to handle unknown request type:", error);
+            res.status(500).json({ error: "Internal Server Error" });
+            return; // Terminate after responding
+        }
     }
 };
