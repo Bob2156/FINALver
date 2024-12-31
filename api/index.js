@@ -38,7 +38,8 @@ const TICKER_COMMAND = {
 };
 
 // Preset image URL for /ticker command (Test Mode)
-const PRESET_IMAGE_URL = "https://th.bing.com/th/id/R.aeccf9d26746b036234619be80502098?rik=JZrA%2f9rIOJ3Fxg&riu=http%3a%2f%2fwww.clipartbest.com%2fcliparts%2fbiy%2fE8E%2fbiyE8Er5T.jpeg&ehk=FOPbyrcgKCZzZorMhY69pKoHELUk3FiBPDkgwkqNvis%3d&risl=&pid=ImgRaw&r=0";
+// You can remove or comment out this line if not using preset images
+// const PRESET_IMAGE_URL = "https://th.bing.com/th/id/R.aeccf9d26746b036234619be80502098?rik=JZrA%2f9rIOJ3Fxg&riu=http%3a%2f%2fwww.clipartbest.com%2fcliparts%2fbiy%2fE8E%2fbiyE8Er5T.jpeg&ehk=FOPbyrcgKCZzZorMhY69pKoHELUk3FiBPDkgwkqNvis%3d&risl=&pid=ImgRaw&r=0";
 
 // Helper function to log debug messages
 function logDebug(message) {
@@ -470,7 +471,7 @@ module.exports = async (req, res) => {
                     // Fetch financial data for the specified ticker and timeframe
                     const tickerData = await fetchTickerFinancialData(ticker, timeframe);
 
-                    // Generate Chart Image URL using QuickChart.io with increased size
+                    // Generate Chart Image URL using QuickChart.io with controlled size
                     const chartConfig = {
                         type: 'line',
                         data: {
@@ -487,8 +488,6 @@ module.exports = async (req, res) => {
                         },
                         options: {
                             responsive: false, // Disable responsiveness to control chart size
-                            width: 1000, // Set desired width
-                            height: 600, // Set desired height
                             scales: {
                                 x: {
                                     title: {
@@ -555,8 +554,8 @@ module.exports = async (req, res) => {
                     // Encode chart configuration as JSON
                     const chartConfigEncoded = encodeURIComponent(JSON.stringify(chartConfig));
 
-                    // Construct QuickChart.io URL with specified size
-                    const chartUrl = `https://quickchart.io/chart?c=${chartConfigEncoded}&width=1000&height=600&format=png`;
+                    // Construct QuickChart.io URL with specified size parameters
+                    const chartUrl = `https://quickchart.io/chart?c=${chartConfigEncoded}&width=800&height=600&format=png`;
 
                     // Create Discord embed
                     const embed = {
