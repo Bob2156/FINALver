@@ -36,14 +36,8 @@ const TICKER_COMMAND = {
     ],
 };
 
-// Preset image URLs for /ticker command
-const PRESET_IMAGES = [
-    "https://via.placeholder.com/800x400.png?text=Financial+Chart+1",
-    "https://via.placeholder.com/800x400.png?text=Financial+Chart+2",
-    "https://via.placeholder.com/800x400.png?text=Financial+Chart+3",
-    "https://via.placeholder.com/800x400.png?text=Financial+Chart+4",
-    "https://via.placeholder.com/800x400.png?text=Financial+Chart+5",
-];
+// Preset image URL for /ticker command
+const PRESET_IMAGE_URL = "https://th.bing.com/th/id/R.aeccf9d26746b036234619be80502098?rik=JZrA%2f9rIOJ3Fxg&riu=http%3a%2f%2fwww.clipartbest.com%2fcliparts%2fbiy%2fE8E%2fbiyE8Er5T.jpeg&ehk=FOPbyrcgKCZzZorMhY69pKoHELUk3FiBPDkgwkqNvis%3d&risl=&pid=ImgRaw&r=0";
 
 // Helper function to log debug messages
 function logDebug(message) {
@@ -181,9 +175,6 @@ module.exports = async (req, res) => {
                     return; // Terminate after responding
                 }
 
-                // Select a random preset image
-                const randomImage = PRESET_IMAGES[Math.floor(Math.random() * PRESET_IMAGES.length)];
-
                 // Preset data for /ticker command
                 const presetTickerEmbed = {
                     title: `${ticker} Financial Data`,
@@ -193,7 +184,7 @@ module.exports = async (req, res) => {
                         { name: "Timeframe", value: timeframe.toUpperCase(), inline: true },
                     ],
                     image: {
-                        url: randomImage,
+                        url: PRESET_IMAGE_URL, // Use the specified preset image URL
                     },
                     footer: {
                         text: "Data fetched from Yahoo Finance",
@@ -206,7 +197,7 @@ module.exports = async (req, res) => {
                         embeds: [presetTickerEmbed],
                     },
                 });
-                logDebug("/ticker command successfully executed with preset data and random image");
+                logDebug("/ticker command successfully executed with preset data and specified image");
                 return; // Terminate after responding
 
             default:
