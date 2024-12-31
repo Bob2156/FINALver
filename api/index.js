@@ -297,7 +297,7 @@ module.exports = async (req, res) => {
     if (req.method !== "POST") {
         logDebug("Invalid method, returning 405");
         res.status(405).json({ error: "Method Not Allowed" });
-        return;
+        return; // Terminate after responding
     }
 
     const signature = req.headers["x-signature-ed25519"];
@@ -306,7 +306,7 @@ module.exports = async (req, res) => {
     if (!signature || !timestamp) {
         console.error("[ERROR] Missing signature or timestamp headers");
         res.status(401).json({ error: "Bad request signature" });
-        return;
+        return; // Terminate after responding
     }
 
     let rawBody;
@@ -317,7 +317,7 @@ module.exports = async (req, res) => {
     } catch (error) {
         console.error("[ERROR] Failed to get raw body:", error);
         res.status(400).json({ error: "Invalid request body" });
-        return;
+        return; // Terminate after responding
     }
 
     let message;
@@ -326,7 +326,7 @@ module.exports = async (req, res) => {
     } catch (error) {
         console.error("[ERROR] Failed to parse JSON:", error);
         res.status(400).json({ error: "Invalid JSON format" });
-        return;
+        return; // Terminate after responding
     }
 
     const isValidRequest = verifyKey(
@@ -339,7 +339,7 @@ module.exports = async (req, res) => {
     if (!isValidRequest) {
         console.error("[ERROR] Invalid request signature");
         res.status(401).json({ error: "Bad request signature" });
-        return;
+        return; // Terminate after responding
     }
 
     logDebug(`Message type: ${message.type}`);
@@ -347,7 +347,8 @@ module.exports = async (req, res) => {
     if (message.type === InteractionType.PING) {
         logDebug("Handling PING");
         res.status(200).json({ type: InteractionResponseType.PONG });
-        return;
+        logDebug("PONG sent");
+        return; // Terminate after responding
     }
 
     if (message.type === InteractionType.APPLICATION_COMMAND) {
@@ -360,7 +361,7 @@ module.exports = async (req, res) => {
                     data: { content: "Hello!" },
                 });
                 logDebug("/hi command successfully executed");
-                break;
+                return; // Terminate after responding
 
             case CHECK_COMMAND.name.toLowerCase():
                 logDebug("Handling /check command");
@@ -416,15 +417,15 @@ module.exports = async (req, res) => {
                         },
                     });
                     logDebug("/check command successfully executed with fetched data");
+                    return; // Terminate after responding
                 } catch (error) {
                     console.error("[ERROR] Failed to fetch financial data for /check command", error);
                     res.status(500).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: { content: "⚠️ Unable to retrieve financial data at this time. Please try again later." }
                     });
+                    return; // Terminate after responding
                 }
-
-                break;
 
             case TICKER_COMMAND.name.toLowerCase():
                 logDebug("Handling /ticker command");
@@ -442,7 +443,7 @@ module.exports = async (req, res) => {
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: { content: "❌ Ticker symbol is required." },
                     });
-                    return;
+                    return; // Terminate after responding
                 }
 
                 try {
@@ -560,22 +561,24 @@ module.exports = async (req, res) => {
                         },
                     });
                     logDebug("/ticker command successfully executed");
+                    return; // Terminate after responding
                 } catch (error) {
                     console.error("[ERROR] Failed to fetch financial data for /ticker command", error);
                     res.status(500).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: { content: "⚠️ Unable to retrieve financial data at this time. Please ensure the ticker symbol is correct and try again later." }
                     });
+                    return; // Terminate after responding
                 }
-
-                break;
 
             default:
                 console.error("[ERROR] Unknown command");
                 res.status(400).json({ error: "Unknown Command" });
+                return; // Terminate after responding
         }
     } else {
         console.error("[ERROR] Unknown request type");
         res.status(400).json({ error: "Unknown Type" });
+        return; // Terminate after responding
     }
 };
