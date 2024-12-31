@@ -166,11 +166,7 @@ async function fetchCheckFinancialData() {
             isTreasuryFalling: isTreasuryFalling,
             treasuryRateChange: parseFloat(treasuryRateChange).toFixed(2), // Added Treasury Rate Change
         };
-    } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error("Failed to fetch financial data");
     }
-}
 
 // Helper function to fetch financial data for /ticker command
 async function fetchTickerFinancialData(ticker, range) {
@@ -285,13 +281,7 @@ async function fetchTickerFinancialData(ticker, range) {
             historicalData: aggregatedData,
             selectedRange: selectedRange,
         };
-    } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error(error.response && error.response.data && error.response.data.chart && error.response.data.chart.error
-            ? error.response.data.chart.error.description
-            : "Failed to fetch financial data.");
     }
-}
 
 // Main handler
 module.exports = async (req, res) => {
@@ -376,14 +366,14 @@ module.exports = async (req, res) => {
                     // Determine risk category and allocation
                     const { category, allocation } = determineRiskCategory(financialData);
 
-                    // Determine Treasury Rate Trend with Change and Timeframe
+                    // Determine Treasury Rate Trend with Timeframe
                     let treasuryRateTrendValue = "";
-                    let treasuryRateTimeframe = "30 days"; // Since we fetched 30 days ago
+                    const treasuryRateTimeframe = "last month"; // Since we fetched 30 days ago
 
                     if (financialData.treasuryRateChange > 0) {
-                        treasuryRateTrendValue = "⬆️ Increasing by " + financialData.treasuryRateChange + "%";
+                        treasuryRateTrendValue = "⬆️ since " + treasuryRateTimeframe;
                     } else if (financialData.treasuryRateChange < 0) {
-                        treasuryRateTrendValue = "⬇️ Falling by " + Math.abs(financialData.treasuryRateChange) + "%";
+                        treasuryRateTrendValue = "⬇️ since " + treasuryRateTimeframe;
                     } else {
                         treasuryRateTrendValue = "↔️ No change";
                     }
