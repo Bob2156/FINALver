@@ -396,9 +396,9 @@ module.exports = async (req, res) => {
                     const treasuryRateTimeframe = "last month"; // Since we fetched 30 days ago
 
                     if (financialData.treasuryRateChange > 0) {
-                        treasuryRateTrendValue = `⬆️ Increasing by ${financialData.treasuryRateChange}% since ${treasuryRateTimeframe}`;
+                        treasuryRateTrendValue = `⬆️ ${financialData.treasuryRateChange}% since ${treasuryRateTimeframe}`;
                     } else if (financialData.treasuryRateChange < 0) {
-                        treasuryRateTrendValue = `⬇️ Falling by ${Math.abs(financialData.treasuryRateChange)}% since ${treasuryRateTimeframe}`;
+                        treasuryRateTrendValue = `⬇️ ${Math.abs(financialData.treasuryRateChange)}% since ${treasuryRateTimeframe}`;
                     } else {
                         treasuryRateTrendValue = "↔️ No change since last month";
                     }
@@ -470,7 +470,7 @@ module.exports = async (req, res) => {
                     // Fetch financial data for the specified ticker and timeframe
                     const tickerData = await fetchTickerFinancialData(ticker, timeframe);
 
-                    // Generate Chart Image URL using QuickChart.io
+                    // Generate Chart Image URL using QuickChart.io with increased size
                     const chartConfig = {
                         type: 'line',
                         data: {
@@ -486,6 +486,9 @@ module.exports = async (req, res) => {
                             }]
                         },
                         options: {
+                            responsive: false, // Disable responsiveness to control chart size
+                            width: 1000, // Set desired width
+                            height: 600, // Set desired height
                             scales: {
                                 x: {
                                     title: {
@@ -552,8 +555,8 @@ module.exports = async (req, res) => {
                     // Encode chart configuration as JSON
                     const chartConfigEncoded = encodeURIComponent(JSON.stringify(chartConfig));
 
-                    // Construct QuickChart.io URL
-                    const chartUrl = `https://quickchart.io/chart?c=${chartConfigEncoded}`;
+                    // Construct QuickChart.io URL with specified size
+                    const chartUrl = `https://quickchart.io/chart?c=${chartConfigEncoded}&width=1000&height=600&format=png`;
 
                     // Create Discord embed
                     const embed = {
