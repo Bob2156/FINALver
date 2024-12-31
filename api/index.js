@@ -168,7 +168,7 @@ async function fetchCheckFinancialData() {
         };
     }
 
-// Helper function to fetch financial data for /ticker command (Retained for future use)
+// Helper function to fetch financial data for /ticker command
 async function fetchTickerFinancialData(ticker, range) {
     try {
         // Define valid ranges and corresponding intervals
@@ -366,14 +366,16 @@ module.exports = async (req, res) => {
                     // Determine risk category and allocation
                     const { category, allocation } = determineRiskCategory(financialData);
 
-                    // Determine Treasury Rate Trend with Change
+                    // Determine Treasury Rate Trend with Change and Timeframe
                     let treasuryRateTrendValue = "";
+                    let treasuryRateTimeframe = "30 days"; // Since we fetched 30 days ago
+
                     if (financialData.treasuryRateChange > 0) {
-                        treasuryRateTrendValue = `Increasing by ${financialData.treasuryRateChange}%`;
+                        treasuryRateTrendValue = "⬆️ Increasing by " + financialData.treasuryRateChange + "%";
                     } else if (financialData.treasuryRateChange < 0) {
-                        treasuryRateTrendValue = `Falling by ${Math.abs(financialData.treasuryRateChange)}%`;
+                        treasuryRateTrendValue = "⬇️ Falling by " + Math.abs(financialData.treasuryRateChange) + "%";
                     } else {
-                        treasuryRateTrendValue = "No change";
+                        treasuryRateTrendValue = "↔️ No change";
                     }
 
                     // Send the formatted embed with actual data and recommendation
@@ -439,30 +441,45 @@ module.exports = async (req, res) => {
                     return; // Terminate after responding
                 }
 
-                // Preset data for /ticker command (Test Mode)
-                const presetTickerEmbed = {
-                    title: `${ticker} Financial Data`,
-                    color: 3447003, // Blue color
-                    fields: [
-                        { name: "Current Price", value: `$350.75`, inline: true },
-                        { name: "Timeframe", value: timeframe.toUpperCase(), inline: true },
-                    ],
-                    image: {
-                        url: PRESET_IMAGE_URL, // Use the specified preset image URL
-                    },
-                    footer: {
-                        text: "Data fetched from Yahoo Finance",
-                    },
-                };
+                try {
+                    logDebug(`Fetching data for Ticker: ${ticker}, Timeframe: ${timeframe}`);
 
-                res.status(200).json({
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: {
-                        embeds: [presetTickerEmbed],
-                    },
-                });
-                logDebug("/ticker command successfully executed with preset data and specified image");
-                return; // Terminate after responding
+                    // Note: The /ticker command remains in test mode with preset values
+                    // If you wish to restore full functionality later, replace the following preset response with dynamic data fetching logic
+
+                    // Preset data for /ticker command (Test Mode)
+                    const presetTickerEmbed = {
+                        title: `${ticker} Financial Data`,
+                        color: 3447003, // Blue color
+                        fields: [
+                            { name: "Current Price", value: `$350.75`, inline: true },
+                            { name: "Timeframe", value: timeframe.toUpperCase(), inline: true },
+                        ],
+                        image: {
+                            url: PRESET_IMAGE_URL, // Use the specified preset image URL
+                        },
+                        footer: {
+                            text: "Data fetched from Yahoo Finance",
+                        },
+                    };
+
+                    // Send the embed as a response
+                    res.status(200).json({
+                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                        data: {
+                            embeds: [presetTickerEmbed],
+                        },
+                    });
+                    logDebug("/ticker command successfully executed with preset data and specified image");
+                    return; // Terminate after responding
+                } catch (error) {
+                    console.error("[ERROR] Failed to fetch financial data for /ticker command", error);
+                    res.status(500).json({
+                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                        data: { content: "⚠️ Unable to retrieve financial data at this time. Please ensure the ticker symbol is correct and try again later." }
+                    });
+                    return; // Terminate after responding
+                }
 
             default:
                 console.error("[ERROR] Unknown command");
