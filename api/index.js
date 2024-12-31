@@ -58,8 +58,12 @@ async function fetchFinancialData() {
         logDebug(`Current 3-Month Treasury Rate: ${currentTreasuryRate}%`);
         logDebug(`3-Month Treasury Rate 30 Days Ago: ${oneMonthAgoTreasuryRate}%`);
 
+        // Determine Treasury Rate Change
+        const treasuryRateChange = (currentTreasuryRate - oneMonthAgoTreasuryRate).toFixed(2);
+        logDebug(`Treasury Rate Change: ${treasuryRateChange}%`);
+
         // Determine if Treasury rate is falling
-        const isTreasuryFalling = currentTreasuryRate < oneMonthAgoTreasuryRate;
+        const isTreasuryFalling = treasuryRateChange < 0;
         logDebug(`Is Treasury Rate Falling: ${isTreasuryFalling}`);
 
         // Calculate Volatility from SPY Historical Data (21-Day Volatility)
@@ -86,31 +90,42 @@ async function fetchFinancialData() {
             volatility: parseFloat(annualizedVolatility).toFixed(2),
             treasuryRate: parseFloat(currentTreasuryRate).toFixed(2),
             isTreasuryFalling: isTreasuryFalling,
+            treasuryRateChange: parseFloat(treasuryRateChange).toFixed(2), // Added Treasury Rate Change
         };
-    } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error("Failed to fetch financial data");
     }
-}
 
-// Helper function to determine risk category and allocation
-function determineRiskCategory(data) {
-    const { spy, sma220, volatility, treasuryRate, isTreasuryFalling } = data;
+    // Helper function to determine risk category and allocation
+    function determineRiskCategory(data) {
+        const { spy, sma220, volatility, treasuryRate, isTreasuryFalling } = data;
 
-    logDebug(`Determining risk category with SPY: ${spy}, SMA220: ${sma220}, Volatility: ${volatility}%, Treasury Rate: ${treasuryRate}%, Is Treasury Falling: ${isTreasuryFalling}`);
+        logDebug(`Determining risk category with SPY: ${spy}, SMA220: ${sma220}, Volatility: ${volatility}%, Treasury Rate: ${treasuryRate}%, Is Treasury Falling: ${isTreasuryFalling}`);
 
-    if (spy > sma220) {
-        if (volatility < 14) {
-            return {
-                category: "Risk On",
-                allocation: "100% UPRO (3× leveraged S&P 500) or 3×(100% SPY)",
-            };
-        } else if (volatility < 24) {
-            return {
-                category: "Risk Mid",
-                allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)",
-            };
+        if (spy > sma220) {
+            if (volatility < 14) {
+                return {
+                    category: "Risk On",
+                    allocation: "100% UPRO (3× leveraged S&P 500) or 3×(100% SPY)",
+                };
+            } else if (volatility < 24) {
+                return {
+                    category: "Risk Mid",
+                    allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)",
+                };
+            } else {
+                if (isTreasuryFalling) {
+                    return {
+                        category: "Risk Alt",
+                        allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
+                    };
+                } else {
+                    return {
+                        category: "Risk Off",
+                        allocation: "100% SPY or 1×(100% SPY)",
+                    };
+                }
+            }
         } else {
+            // When SPY ≤ 220-day SMA, do not consider volatility, directly check Treasury rate
             if (isTreasuryFalling) {
                 return {
                     category: "Risk Alt",
@@ -123,154 +138,150 @@ function determineRiskCategory(data) {
                 };
             }
         }
-    } else {
-        // When SPY ≤ 220-day SMA, do not consider volatility, directly check Treasury rate
-        if (isTreasuryFalling) {
-            return {
-                category: "Risk Alt",
-                allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
-            };
-        } else {
-            return {
-                category: "Risk Off",
-                allocation: "100% SPY or 1×(100% SPY)",
-            };
+    }
+
+    // Main handler
+    module.exports = async (req, res) => {
+        logDebug("Received a new request");
+
+        if (req.method !== "POST") {
+            logDebug("Invalid method, returning 405");
+            res.status(405).json({ error: "Method Not Allowed" });
+            return;
         }
-    }
-}
 
-// Main handler
-module.exports = async (req, res) => {
-    logDebug("Received a new request");
+        const signature = req.headers["x-signature-ed25519"];
+        const timestamp = req.headers["x-signature-timestamp"];
 
-    if (req.method !== "POST") {
-        logDebug("Invalid method, returning 405");
-        res.status(405).json({ error: "Method Not Allowed" });
-        return;
-    }
+        if (!signature || !timestamp) {
+            console.error("[ERROR] Missing signature or timestamp headers");
+            res.status(401).json({ error: "Bad request signature" });
+            return;
+        }
 
-    const signature = req.headers["x-signature-ed25519"];
-    const timestamp = req.headers["x-signature-timestamp"];
+        let rawBody;
+        try {
+            rawBody = await getRawBody(req, {
+                encoding: "utf-8",
+            });
+        } catch (error) {
+            console.error("[ERROR] Failed to get raw body:", error);
+            res.status(400).json({ error: "Invalid request body" });
+            return;
+        }
 
-    if (!signature || !timestamp) {
-        console.error("[ERROR] Missing signature or timestamp headers");
-        res.status(401).json({ error: "Bad request signature" });
-        return;
-    }
+        let message;
+        try {
+            message = JSON.parse(rawBody);
+        } catch (error) {
+            console.error("[ERROR] Failed to parse JSON:", error);
+            res.status(400).json({ error: "Invalid JSON format" });
+            return;
+        }
 
-    let rawBody;
-    try {
-        rawBody = await getRawBody(req, {
-            encoding: "utf-8",
-        });
-    } catch (error) {
-        console.error("[ERROR] Failed to get raw body:", error);
-        res.status(400).json({ error: "Invalid request body" });
-        return;
-    }
+        const isValidRequest = verifyKey(
+            rawBody,
+            signature,
+            timestamp,
+            process.env.PUBLIC_KEY
+        );
 
-    let message;
-    try {
-        message = JSON.parse(rawBody);
-    } catch (error) {
-        console.error("[ERROR] Failed to parse JSON:", error);
-        res.status(400).json({ error: "Invalid JSON format" });
-        return;
-    }
+        if (!isValidRequest) {
+            console.error("[ERROR] Invalid request signature");
+            res.status(401).json({ error: "Bad request signature" });
+            return;
+        }
 
-    const isValidRequest = verifyKey(
-        rawBody,
-        signature,
-        timestamp,
-        process.env.PUBLIC_KEY
-    );
+        logDebug(`Message type: ${message.type}`);
 
-    if (!isValidRequest) {
-        console.error("[ERROR] Invalid request signature");
-        res.status(401).json({ error: "Bad request signature" });
-        return;
-    }
+        if (message.type === InteractionType.PING) {
+            logDebug("Handling PING");
+            res.status(200).json({ type: InteractionResponseType.PONG });
+            return;
+        }
 
-    logDebug(`Message type: ${message.type}`);
-
-    if (message.type === InteractionType.PING) {
-        logDebug("Handling PING");
-        res.status(200).json({ type: InteractionResponseType.PONG });
-        return;
-    }
-
-    if (message.type === InteractionType.APPLICATION_COMMAND) {
-        const commandName = message.data.name.toLowerCase();
-        switch (commandName) {
-            case HI_COMMAND.name.toLowerCase():
-                logDebug("Handling /hi command");
-                res.status(200).json({
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: { content: "Hello!" },
-                });
-                logDebug("/hi command successfully executed");
-                break;
-
-            case CHECK_COMMAND.name.toLowerCase():
-                logDebug("Handling /check command");
-
-                try {
-                    // Fetch financial data
-                    const financialData = await fetchFinancialData();
-
-                    // Determine risk category and allocation
-                    const { category, allocation } = determineRiskCategory(financialData);
-
-                    // Send the formatted embed with actual data and recommendation
+        if (message.type === InteractionType.APPLICATION_COMMAND) {
+            const commandName = message.data.name.toLowerCase();
+            switch (commandName) {
+                case HI_COMMAND.name.toLowerCase():
+                    logDebug("Handling /hi command");
                     res.status(200).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: {
-                            embeds: [
-                                {
-                                    title: "MFEA Analysis Status",
-                                    color: 3447003, // Blue banner
-                                    fields: [
-                                        { name: "SPY Price", value: `$${financialData.spy}`, inline: true },
-                                        { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
-                                        { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true },
-                                        { name: "Volatility", value: `${financialData.volatility}%`, inline: true },
-                                        { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
-                                        { name: "Treasury Rate Trend", value: financialData.isTreasuryFalling ? "Falling" : "Not Falling", inline: true },
-                                        { 
-                                            name: "📈 **Risk Category**", 
-                                            value: category, 
-                                            inline: false 
+                        data: { content: "Hello!" },
+                    });
+                    logDebug("/hi command successfully executed");
+                    break;
+
+                case CHECK_COMMAND.name.toLowerCase():
+                    logDebug("Handling /check command");
+
+                    try {
+                        // Fetch financial data
+                        const financialData = await fetchFinancialData();
+
+                        // Determine risk category and allocation
+                        const { category, allocation } = determineRiskCategory(financialData);
+
+                        // Determine Treasury Rate Trend with Change
+                        let treasuryRateTrendValue = "";
+                        if (financialData.treasuryRateChange > 0) {
+                            treasuryRateTrendValue = `Increasing by ${financialData.treasuryRateChange}%`;
+                        } else if (financialData.treasuryRateChange < 0) {
+                            treasuryRateTrendValue = `Falling by ${Math.abs(financialData.treasuryRateChange)}%`;
+                        } else {
+                            treasuryRateTrendValue = "No change";
+                        }
+
+                        // Send the formatted embed with actual data and recommendation
+                        res.status(200).json({
+                            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                            data: {
+                                embeds: [
+                                    {
+                                        title: "MFEA Analysis Status",
+                                        color: 3447003, // Blue banner
+                                        fields: [
+                                            { name: "SPY Price", value: `$${financialData.spy}`, inline: true },
+                                            { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
+                                            { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true },
+                                            { name: "Volatility", value: `${financialData.volatility}%`, inline: true },
+                                            { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
+                                            { name: "Treasury Rate Trend", value: treasuryRateTrendValue, inline: true }, // Updated Treasury Rate Trend
+                                            { 
+                                                name: "📈 **Risk Category**", 
+                                                value: category, 
+                                                inline: false 
+                                            },
+                                            { 
+                                                name: "💡 **Allocation Recommendation**", 
+                                                value: `**${allocation}**`, // **Fixed Allocation Recommendation**
+                                                inline: false 
+                                            },
+                                        ],
+                                        footer: {
+                                            text: "MFEA Recommendation based on current market conditions",
                                         },
-                                        { 
-                                            name: "💡 **Allocation Recommendation**", 
-                                            value: `**${allocation}**`, // **Fixed Allocation Recommendation**
-                                            inline: false 
-                                        },
-                                    ],
-                                    footer: {
-                                        text: "MFEA Recommendation based on current market conditions",
                                     },
-                                },
-                            ],
-                        },
-                    });
-                    logDebug("/check command successfully executed with fetched data");
-                } catch (error) {
-                    console.error("[ERROR] Failed to fetch financial data for /check command", error);
-                    res.status(500).json({
-                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { content: "⚠️ Unable to retrieve financial data at this time. Please try again later." }
-                    });
-                }
+                                ],
+                            },
+                        });
+                        logDebug("/check command successfully executed with fetched data");
+                    } catch (error) {
+                        console.error("[ERROR] Failed to fetch financial data for /check command", error);
+                        res.status(500).json({
+                            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                            data: { content: "⚠️ Unable to retrieve financial data at this time. Please try again later." }
+                        });
+                    }
 
-                break;
+                    break;
 
-            default:
-                console.error("[ERROR] Unknown command");
-                res.status(400).json({ error: "Unknown Command" });
+                default:
+                    console.error("[ERROR] Unknown command");
+                    res.status(400).json({ error: "Unknown Command" });
+            }
+        } else {
+            console.error("[ERROR] Unknown request type");
+            res.status(400).json({ error: "Unknown Type" });
         }
-    } else {
-        console.error("[ERROR] Unknown request type");
-        res.status(400).json({ error: "Unknown Type" });
-    }
-};
+    };
