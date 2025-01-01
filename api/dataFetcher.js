@@ -69,7 +69,11 @@ async function fetchCheckFinancialData() {
             isTreasuryFalling: isTreasuryFalling,
             treasuryRateChange: parseFloat(treasuryRateChange).toFixed(2),
         };
+    } catch (error) {
+        console.error("Error fetching financial data:", error);
+        throw new Error("Failed to fetch financial data");
     }
+}
 
 // Function to fetch financial data for /ticker command
 async function fetchTickerFinancialData(ticker, range) {
@@ -184,61 +188,15 @@ async function fetchTickerFinancialData(ticker, range) {
             historicalData: aggregatedData,
             selectedRange: selectedRange,
         };
+    } catch (error) {
+        console.error("Error fetching financial data:", error);
+        throw new Error(error.response && error.response.data && error.response.data.chart && error.response.data.chart.error
+            ? error.response.data.chart.error.description
+            : "Failed to fetch financial data.");
     }
-
-    module.exports = {
-        fetchCheckFinancialData,
-        fetchTickerFinancialData
-    };
-    ```
-
-**Explanation:**
-
-- **Purpose:** Centralizes data fetching logic to be shared across different API endpoints and Discord commands.
-- **Functions:**
-  - `fetchCheckFinancialData`: Fetches and processes data for the `/check` command.
-  - `fetchTickerFinancialData`: Fetches and processes data for the `/ticker` command.
-
----
-
-#### **2. Update `fetchData.js` to Use the Shared Data Fetching Module**
-
-Modify your existing `api/fetchData.js` to utilize the shared data fetching functions from `dataFetcher.js`.
-
-**Updated `api/fetchData.js`**
-
-```javascript
-// api/fetchData.js
-
-const { fetchTickerFinancialData } = require('./dataFetcher');
-
-export default async function handler(req, res) {
-  if (req.method !== "GET") {
-    res.status(405).json({ error: "Method Not Allowed. Use GET." });
-    return;
-  }
-
-  const { ticker, range } = req.query;
-
-  // Validate ticker parameter
-  const validTickerRegex = /^[A-Z]{1,5}$/; // Ticker symbols typically 1-5 uppercase letters
-  if (!ticker || !validTickerRegex.test(ticker)) {
-    res.status(400).json({ error: "Invalid or missing ticker symbol. Please enter a valid uppercase ticker (e.g., AAPL)." });
-    return;
-  }
-
-  try {
-    // Fetch financial data
-    const tickerData = await fetchTickerFinancialData(ticker, range);
-
-    res.status(200).json({
-      ticker: tickerData.ticker,
-      currentPrice: tickerData.currentPrice,
-      historicalData: tickerData.historicalData,
-      selectedRange: tickerData.selectedRange,
-    });
-  } catch (error) {
-    console.error("Error fetching data:", error.message);
-    res.status(500).json({ error: error.message || "Failed to fetch financial data." });
-  }
 }
+
+module.exports = {
+    fetchCheckFinancialData,
+    fetchTickerFinancialData
+};
