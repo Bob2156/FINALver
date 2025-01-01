@@ -1,18 +1,37 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MFEA TESTING</title>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
       text-align: center;
       padding: 20px;
+      background-color: #f5f5f5;
     }
     h1 {
       color: #0070f3;
+    }
+    .search-container {
+      margin-top: 30px;
+    }
+    input[type="text"] {
+      padding: 10px;
+      width: 200px;
+      font-size: 16px;
+      border: 2px solid #0070f3;
+      border-radius: 5px;
+    }
+    select {
+      padding: 10px;
+      font-size: 16px;
+      border: 2px solid #0070f3;
+      border-radius: 5px;
+      margin-left: 10px;
     }
     button {
       padding: 10px 20px;
@@ -22,59 +41,243 @@
       border-radius: 5px;
       background-color: #0070f3;
       color: white;
-      margin-top: 20px;
+      margin-left: 10px;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #005bb5;
     }
     .result {
       margin-top: 20px;
       font-size: 18px;
+      color: #333;
     }
     .error {
       color: red;
       margin-top: 20px;
     }
+    /* Enhanced Responsive Chart */
+    #chartContainer {
+      width: 90%;
+      max-width: 1000px;
+      height: 700px; /* Increased height for vertical elongation */
+      margin: 40px auto;
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    canvas {
+      /* Ensure the canvas fills the container */
+      width: 100% !important;
+      height: 100% !important;
+    }
+    /* Help Section Styling */
+    .help-section {
+      margin-top: 40px;
+      text-align: left;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+      background-color: #fff;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .help-section h2 {
+      color: #0070f3;
+    }
+    .help-section ul li {
+      padding: 5px 0;
+    }
   </style>
 </head>
 <body>
   <h1>MFEA TESTING</h1>
-  <p>Click the button below to fetch financial data.</p>
-  <button id="fetchDataBtn">Fetch Data</button>
+  <div class="search-container">
+    <input type="text" id="tickerInput" placeholder="Enter Ticker Symbol (e.g., AAPL)" />
+    <select id="rangeSelect">
+      <option value="1d">1 Day</option>
+      <option value="1mo">1 Month</option>
+      <option value="1y">1 Year</option>
+      <option value="3y">3 Years</option>
+      <option value="10y">10 Years</option>
+    </select>
+    <button id="searchBtn">Search</button>
+  </div>
   <div class="result" id="result"></div>
   <div class="error" id="error"></div>
 
+  <div id="chartContainer">
+    <canvas id="stockChart"></canvas>
+  </div>
+
+  <div class="help-section">
+    <h2>How to Use</h2>
+    <p>Enter a valid stock ticker symbol (e.g., AAPL, GOOGL) and select a timeframe to view the current price and historical chart.</p>
+    <p><strong>Available Timeframes:</strong></p>
+    <ul style="list-style: none; padding: 0;">
+      <li>1 Day</li>
+      <li>1 Month</li>
+      <li>1 Year</li>
+      <li>3 Years</li>
+      <li>10 Years</li>
+    </ul>
+  </div>
+
   <script>
-    document.getElementById("fetchDataBtn").addEventListener("click", async () => {
+    let stockChart; // To hold the Chart.js instance
+
+    document.getElementById("searchBtn").addEventListener("click", async () => {
+      const ticker = document.getElementById("tickerInput").value.trim().toUpperCase();
+      const range = document.getElementById("rangeSelect").value;
       const resultDiv = document.getElementById("result");
       const errorDiv = document.getElementById("error");
 
       // Reset the result and error sections
-      resultDiv.innerHTML = "Loading...";
+      resultDiv.innerHTML = "";
       errorDiv.innerHTML = "";
 
+      if (!ticker) {
+        errorDiv.innerHTML = "Please enter a ticker symbol.";
+        return;
+      }
+
       try {
-        // Fetch data from the API
-        const response = await fetch("/api/fetchData");
+        // Show loading message
+        resultDiv.innerHTML = "Loading...";
+
+        // Fetch data from the API with the ticker and range as query parameters
+        const response = await fetch(`/api/fetchData?ticker=${encodeURIComponent(ticker)}&range=${encodeURIComponent(range)}`);
 
         if (!response.ok) {
-          throw new Error("Failed to fetch data.");
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Failed to fetch data.");
         }
 
         const data = await response.json();
 
-        // Display the fetched data
+        // Display the fetched current price
         resultDiv.innerHTML = `
-          <p><strong>S&P 500:</strong> $${data.sp500}</p>
-          <p><strong>3-Month Treasury Rate:</strong> ${data.treasuryRate}%</p>
-          <p><strong>S&P 500 Volatility (21 days, annualized):</strong> ${data.sp500Volatility}</p>
+          <p><strong>Ticker:</strong> ${data.ticker}</p>
+          <p><strong>Current Price:</strong> ${data.currentPrice}</p>
         `;
+
+        // Prepare data for Chart.js
+        const labels = data.historicalData.map(entry => entry.date);
+        const prices = data.historicalData.map(entry => entry.price);
+
+        // If a chart already exists, destroy it before creating a new one
+        if (stockChart) {
+          stockChart.destroy();
+        }
+
+        const ctx = document.getElementById('stockChart').getContext('2d');
+        stockChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: `${data.ticker} Price`,
+              data: prices,
+              borderColor: '#0070f3',
+              backgroundColor: 'rgba(0, 112, 243, 0.1)',
+              borderWidth: 2,
+              pointRadius: 0, // Remove points for a cleaner line
+              fill: true,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+              mode: 'index',
+              intersect: false,
+            },
+            plugins: {
+              legend: {
+                display: true,
+                labels: {
+                  color: '#333',
+                  font: {
+                    size: 14,
+                  }
+                }
+              },
+              tooltip: {
+                enabled: true,
+                mode: 'index',
+                intersect: false,
+                callbacks: {
+                  label: function(context) {
+                    return ` $${parseFloat(context.parsed.y).toFixed(2)}`;
+                  }
+                }
+              }
+            },
+            scales: {
+              x: {
+                display: true,
+                title: {
+                  display: true,
+                  text: 'Date',
+                  color: '#333',
+                  font: {
+                    size: 16,
+                  }
+                },
+                ticks: {
+                  maxTicksLimit: 10,
+                  color: '#333',
+                  maxRotation: 0,
+                  minRotation: 0,
+                },
+                grid: {
+                  display: false,
+                }
+              },
+              y: {
+                display: true,
+                title: {
+                  display: true,
+                  text: 'Price ($)',
+                  color: '#333',
+                  font: {
+                    size: 16,
+                  }
+                },
+                ticks: {
+                  color: '#333',
+                  // Chart.js handles dynamic scaling
+                },
+                grid: {
+                  color: 'rgba(0,0,0,0.1)',
+                  borderDash: [5, 5], // Dashed grid lines for better readability
+                }
+              }
+            }
+          }
+        });
+
       } catch (error) {
         // Show error message if something goes wrong
         errorDiv.innerHTML = `Error: ${error.message}`;
         console.error("Error fetching data:", error);
-      } finally {
-        // Clear the "Loading..." text if it is still visible
-        if (resultDiv.innerHTML === "Loading...") {
-          resultDiv.innerHTML = "";
+        resultDiv.innerHTML = "";
+
+        // Destroy existing chart if error occurs
+        if (stockChart) {
+          stockChart.destroy();
+          stockChart = null;
         }
+      }
+    });
+
+    // Allow pressing "Enter" to trigger the search
+    document.getElementById("tickerInput").addEventListener("keypress", function(event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        document.getElementById("searchBtn").click();
       }
     });
   </script>
