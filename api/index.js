@@ -6,7 +6,7 @@ const {
     verifyKey,
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
-const { fetchCheckFinancialData, fetchTickerFinancialData } = require('./dataFetcher');
+const axios = require("axios");
 
 // Define your commands
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
@@ -88,6 +88,28 @@ function determineRiskCategory(data) {
     }
 }
 
+// Function to fetch financial data for /check command
+async function fetchCheckFinancialData() {
+    try {
+        const response = await axios.get('https://your-vercel-site.vercel.app/api/fetchData?type=check');
+        return response.data;
+    } catch (error) {
+        console.error("[ERROR] Failed to fetch check financial data:", error);
+        throw error;
+    }
+}
+
+// Function to fetch financial data for /ticker command
+async function fetchTickerFinancialData(ticker, range) {
+    try {
+        const response = await axios.get(`https://your-vercel-site.vercel.app/api/fetchData?ticker=${ticker}&range=${range}`);
+        return response.data;
+    } catch (error) {
+        console.error("[ERROR] Failed to fetch ticker financial data:", error);
+        throw error;
+    }
+}
+
 // Main handler
 module.exports = async (req, res) => {
     logDebug("Received a new request");
@@ -95,7 +117,7 @@ module.exports = async (req, res) => {
     if (req.method !== "POST") {
         logDebug("Invalid method, returning 405");
         res.status(405).json({ error: "Method Not Allowed" });
-        return; // Terminate after responding
+        return;
     }
 
     const signature = req.headers["x-signature-ed25519"];
@@ -104,7 +126,7 @@ module.exports = async (req, res) => {
     if (!signature || !timestamp) {
         console.error("[ERROR] Missing signature or timestamp headers");
         res.status(401).json({ error: "Bad request signature" });
-        return; // Terminate after responding
+        return;
     }
 
     let rawBody;
@@ -115,7 +137,7 @@ module.exports = async (req, res) => {
     } catch (error) {
         console.error("[ERROR] Failed to get raw body:", error);
         res.status(400).json({ error: "Invalid request body" });
-        return; // Terminate after responding
+        return;
     }
 
     let message;
@@ -124,7 +146,7 @@ module.exports = async (req, res) => {
     } catch (error) {
         console.error("[ERROR] Failed to parse JSON:", error);
         res.status(400).json({ error: "Invalid JSON format" });
-        return; // Terminate after responding
+        return;
     }
 
     const isValidRequest = verifyKey(
@@ -137,7 +159,7 @@ module.exports = async (req, res) => {
     if (!isValidRequest) {
         console.error("[ERROR] Invalid request signature");
         res.status(401).json({ error: "Bad request signature" });
-        return; // Terminate after responding
+        return;
     }
 
     logDebug(`Message type: ${message.type}`);
@@ -147,11 +169,11 @@ module.exports = async (req, res) => {
             logDebug("Handling PING");
             res.status(200).json({ type: InteractionResponseType.PONG });
             logDebug("PONG sent");
-            return; // Terminate after responding
+            return;
         } catch (error) {
             console.error("[ERROR] Failed to handle PING:", error);
             res.status(500).json({ error: "Internal Server Error" });
-            return; // Terminate after responding
+            return;
         }
     }
 
@@ -163,17 +185,17 @@ module.exports = async (req, res) => {
                     logDebug("Handling /hi command");
                     res.status(200).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { content: "hii <3" }, // Updated response
+                        data: { content: "hii <3" },
                     });
                     logDebug("/hi command successfully executed");
-                    return; // Terminate after responding
+                    return;
                 } catch (error) {
                     console.error("[ERROR] Failed to execute /hi command:", error);
                     res.status(500).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: { content: "⚠️ An error occurred while processing your request." }
                     });
-                    return; // Terminate after responding
+                    return;
                 }
 
             case CHECK_COMMAND.name.toLowerCase():
@@ -188,7 +210,7 @@ module.exports = async (req, res) => {
 
                     // Determine Treasury Rate Trend with Value and Timeframe
                     let treasuryRateTrendValue = "";
-                    const treasuryRateTimeframe = "last month"; // Since we fetched 30 days ago
+                    const treasuryRateTimeframe = "last month"; // Assuming 30 days
 
                     if (financialData.treasuryRateChange > 0) {
                         treasuryRateTrendValue = `⬆️ ${financialData.treasuryRateChange}% since ${treasuryRateTimeframe}`;
@@ -212,7 +234,7 @@ module.exports = async (req, res) => {
                                         { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true },
                                         { name: "Volatility", value: `${financialData.volatility}%`, inline: true },
                                         { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
-                                        { name: "Treasury Rate Trend", value: treasuryRateTrendValue, inline: true }, // Updated Treasury Rate Trend
+                                        { name: "Treasury Rate Trend", value: treasuryRateTrendValue, inline: true },
                                         { 
                                             name: "📈 **Risk Category**", 
                                             value: category, 
@@ -220,7 +242,7 @@ module.exports = async (req, res) => {
                                         },
                                         { 
                                             name: "💡 **Allocation Recommendation**", 
-                                            value: `**${allocation}**`, // **Fixed Allocation Recommendation**
+                                            value: `**${allocation}**`, 
                                             inline: false 
                                         },
                                     ],
@@ -232,14 +254,14 @@ module.exports = async (req, res) => {
                         },
                     });
                     logDebug("/check command successfully executed with fetched data");
-                    return; // Terminate after responding
+                    return;
                 } catch (error) {
                     console.error("[ERROR] Failed to fetch financial data for /check command:", error);
                     res.status(500).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: { content: "⚠️ Unable to retrieve financial data at this time. Please try again later." }
                     });
-                    return; // Terminate after responding
+                    return;
                 }
 
             case TICKER_COMMAND.name.toLowerCase():
@@ -259,7 +281,7 @@ module.exports = async (req, res) => {
                             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                             data: { content: "❌ Ticker symbol is required." },
                         });
-                        return; // Terminate after responding
+                        return;
                     }
 
                     // Fetch financial data for the specified ticker and timeframe
@@ -377,36 +399,36 @@ module.exports = async (req, res) => {
                         },
                     });
                     logDebug("/ticker command successfully executed with dynamic data and chart");
-                    return; // Terminate after responding
+                    return;
                 } catch (error) {
                     console.error("[ERROR] Failed to fetch financial data for /ticker command:", error);
                     res.status(500).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: { content: "⚠️ Unable to retrieve financial data at this time. Please ensure the ticker symbol is correct and try again later." }
                     });
-                    return; // Terminate after responding
+                    return;
                 }
 
             default:
                 try {
                     console.error("[ERROR] Unknown command");
                     res.status(400).json({ error: "Unknown Command" });
-                    return; // Terminate after responding
+                    return;
                 } catch (error) {
                     console.error("[ERROR] Failed to handle unknown command:", error);
                     res.status(500).json({ error: "Internal Server Error" });
-                    return; // Terminate after responding
+                    return;
                 }
         }
     } else {
         try {
             console.error("[ERROR] Unknown request type");
             res.status(400).json({ error: "Unknown Type" });
-            return; // Terminate after responding
+            return;
         } catch (error) {
             console.error("[ERROR] Failed to handle unknown request type:", error);
             res.status(500).json({ error: "Internal Server Error" });
-            return; // Terminate after responding
+            return;
         }
     }
 };
