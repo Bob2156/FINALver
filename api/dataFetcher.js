@@ -188,15 +188,10 @@ async function fetchTickerFinancialData(ticker, range) {
             historicalData: aggregatedData,
             selectedRange: selectedRange,
         };
-    } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error(error.response && error.response.data && error.response.data.chart && error.response.data.chart.error
-            ? error.response.data.chart.error.description
-            : "Failed to fetch financial data.");
     }
-}
 
-module.exports = {
-    fetchCheckFinancialData,
-    fetchTickerFinancialData
-};
+    module.exports = {
+        fetchCheckFinancialData,
+        fetchTickerFinancialData
+    };
+}
