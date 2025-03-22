@@ -47,21 +47,26 @@ function logDebug(message) {
 
 // Helper function to determine risk category and allocation
 function determineRiskCategory(data) {
-    const { spy, sma220, volatility, treasuryRate, isTreasuryFalling } = data;
-    logDebug(`Determining risk category with SPY: ${spy}, SMA220: ${sma220}, Volatility: ${volatility}%, Treasury Rate: ${treasuryRate}%, Is Treasury Falling: ${isTreasuryFalling}`);
-    if (spy > sma220) {
-        if (volatility < 14) {
+    // Convert string values to numbers before comparison
+    const spyValue = parseFloat(data.spy);
+    const sma220Value = parseFloat(data.sma220);
+    const volatilityValue = parseFloat(data.volatility);
+
+    logDebug(`Determining risk category with SPY: ${data.spy}, SMA220: ${data.sma220}, Volatility: ${data.volatility}%, Treasury Rate: ${data.treasuryRate}%, Is Treasury Falling: ${data.isTreasuryFalling}`);
+
+    if (spyValue > sma220Value) {
+        if (volatilityValue < 14) {
             return {
                 category: "Risk On",
                 allocation: "100% UPRO (3× leveraged S&P 500) or 3×(100% SPY)",
             };
-        } else if (volatility < 24) {
+        } else if (volatilityValue < 24) {
             return {
                 category: "Risk Mid",
                 allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)",
             };
         } else {
-            if (isTreasuryFalling) {
+            if (data.isTreasuryFalling) {
                 return {
                     category: "Risk Alt",
                     allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
@@ -74,7 +79,8 @@ function determineRiskCategory(data) {
             }
         }
     } else {
-        if (isTreasuryFalling) {
+        // When SPY ≤ 220-day SMA, do not consider volatility, directly check Treasury rate
+        if (data.isTreasuryFalling) {
             return {
                 category: "Risk Alt",
                 allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
