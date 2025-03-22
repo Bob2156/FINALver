@@ -1,14 +1,12 @@
-// api/fetchData.js
-
 const axios = require("axios");
 
 // Function to fetch financial data for /check command
 async function fetchCheckFinancialData() {
     try {
-        // Fetch SPY (price and historical data for 220 days) and Treasury Rate (30 days) concurrently
+        // Fetch SPY (price and historical data for 220 days) and Treasury Rate (40 days) concurrently
         const [spyResponse, treasuryResponse] = await Promise.all([
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=30d"), // Fetch 30 days for Treasury rate
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=40d"), // 40 days for Treasury rate
         ]);
 
         const spyData = spyResponse.data;
