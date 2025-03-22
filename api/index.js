@@ -17,13 +17,13 @@ const TICKER_COMMAND = {
     options: [
         {
             name: "symbol",
-            type: 3,
+            type: 3, // STRING type
             description: "The stock ticker symbol (e.g., AAPL, GOOGL)",
             required: true,
         },
         {
             name: "timeframe",
-            type: 3,
+            type: 3, // STRING type
             description: "The timeframe for the chart (1d, 1mo, 1y, 3y, 10y)",
             required: true,
             choices: [
@@ -91,9 +91,13 @@ function determineRiskCategory(data) {
 // Helper function to fetch financial data for /check command
 async function fetchCheckFinancialData() {
     try {
+        // We fetch data for:
+        // 1) 220 days for SMA
+        // 2) 40 days for 3‑month Treasury (updated from 30d)
+        // 3) 40 days for volatility (ensures we get at least 21 trading days)
         const [spySMAResponse, treasuryResponse, spyVolResponse] = await Promise.all([
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=40d"),
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=40d"), // Updated treasury fetch to include 40 days
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=40d"),
         ]);
 
@@ -119,12 +123,12 @@ async function fetchCheckFinancialData() {
         }
         const currentTreasuryRate = parseFloat(treasuryRates[treasuryRates.length - 1]).toFixed(3);
         const oneMonthAgoTreasuryRate = treasuryRates.length >= 30
-            ? parseFloat(treasuryRates[treasuryRates.length - 30]).toFixed(2)
-            : parseFloat(treasuryRates[0]).toFixed(2);
+            ? parseFloat(treasuryRates[treasuryRates.length - 30]).toFixed(3)
+            : parseFloat(treasuryRates[0]).toFixed(3);
         logDebug(`Current 3-Month Treasury Rate: ${currentTreasuryRate}%`);
         logDebug(`3-Month Treasury Rate 30 Days Ago: ${oneMonthAgoTreasuryRate}%`);
 
-        const treasuryRateChange = (parseFloat(currentTreasuryRate) - parseFloat(oneMonthAgoTreasuryRate)).toFixed(2);
+        const treasuryRateChange = (parseFloat(currentTreasuryRate) - parseFloat(oneMonthAgoTreasuryRate)).toFixed(3);
         logDebug(`Treasury Rate Change: ${treasuryRateChange}%`);
         const isTreasuryFalling = treasuryRateChange < 0;
         logDebug(`Is Treasury Rate Falling: ${isTreasuryFalling}`);
@@ -150,9 +154,9 @@ async function fetchCheckFinancialData() {
             sma220: parseFloat(sma220).toFixed(2),
             spyStatus: spyStatus,
             volatility: parseFloat(annualizedVolatility).toFixed(2),
-            treasuryRate: currentTreasuryRate, // now 3 decimals
+            treasuryRate: currentTreasuryRate, // 3 decimals
             isTreasuryFalling: isTreasuryFalling,
-            treasuryRateChange: treasuryRateChange, 
+            treasuryRateChange: treasuryRateChange, // 3 decimals
         };
     } catch (error) {
         console.error("Error fetching financial data:", error);
@@ -359,8 +363,11 @@ module.exports = async (req, res) => {
             case CHECK_COMMAND.name.toLowerCase():
                 try {
                     logDebug("Handling /check command");
+                    // Fetch financial data
                     const financialData = await fetchCheckFinancialData();
+                    // Determine risk category and allocation
                     const { category, allocation } = determineRiskCategory(financialData);
+                    // Determine Treasury Rate Trend with Value and Timeframe
                     let treasuryRateTrendValue = "";
                     const treasuryRateTimeframe = "last month";
                     if (financialData.treasuryRateChange > 0) {
@@ -370,6 +377,7 @@ module.exports = async (req, res) => {
                     } else {
                         treasuryRateTrendValue = "↔️ No change since last month";
                     }
+                    // Send the formatted embed with actual data and recommendation
                     res.status(200).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: {
@@ -408,6 +416,7 @@ module.exports = async (req, res) => {
             case TICKER_COMMAND.name.toLowerCase():
                 try {
                     logDebug("Handling /ticker command");
+                    // Extract options
                     const options = message.data.options;
                     const tickerOption = options.find(option => option.name === "symbol");
                     const timeframeOption = options.find(option => option.name === "timeframe");
@@ -420,7 +429,9 @@ module.exports = async (req, res) => {
                         });
                         return;
                     }
+                    // Fetch financial data for the specified ticker and timeframe
                     const tickerData = await fetchTickerFinancialData(ticker, timeframe);
+                    // Generate Chart Image URL using QuickChart.io
                     const chartConfig = {
                         type: 'line',
                         data: {
