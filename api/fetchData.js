@@ -47,12 +47,10 @@ async function fetchCheckFinancialData() {
             const previousPrice = spyAdjClosePrices[index];
             return (price / previousPrice - 1);
         });
-
         const recentReturns = dailyReturns.slice(-21); // Last 21 daily returns
         if (recentReturns.length < 21) {
             throw new Error("Not enough data to calculate 21-day volatility.");
         }
-
         const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length;
         const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length;
         const dailyVolatility = Math.sqrt(variance);
@@ -91,7 +89,6 @@ async function fetchTickerFinancialData(ticker, range) {
 
         // Fetch the financial data for the specified ticker and range
         const tickerResponse = await axios.get(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${yahooRange}`);
-
         const tickerData = tickerResponse.data;
 
         // Check if the response contains valid data
@@ -105,7 +102,6 @@ async function fetchTickerFinancialData(ticker, range) {
 
         // Extract current price
         const currentPrice = parseFloat(tickerData.chart.result[0].meta.regularMarketPrice).toFixed(2);
-
         // Extract historical prices and timestamps
         const timestamps = tickerData.chart.result[0].timestamp;
         let prices = [];
@@ -164,7 +160,7 @@ async function fetchTickerFinancialData(ticker, range) {
             // Aggregate monthly averages for 10-year data
             const monthlyMap = {};
             historicalData.forEach(entry => {
-                const month = entry.date.slice(0, 7); // 'Sep 2020'
+                const month = entry.date.slice(0, 7); // e.g., 'Sep 2020'
                 if (!monthlyMap[month]) {
                     monthlyMap[month] = [];
                 }
