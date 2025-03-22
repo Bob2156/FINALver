@@ -1,5 +1,3 @@
-// api/index.js
-
 "use strict";
 
 const {
@@ -98,11 +96,11 @@ async function fetchCheckFinancialData() {
     try {
         // We fetch data for:
         // 1) 220 days for SMA
-        // 2) 30 days for 3‑month Treasury
+        // 2) 40 days for 3‑month Treasury (updated from 30d)
         // 3) 40 days for volatility (ensures we get at least 21 trading days)
         const [spySMAResponse, treasuryResponse, spyVolResponse] = await Promise.all([
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=30d"),
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=40d"), // Updated treasury fetch to include 40 days
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=40d"),
         ]);
 
@@ -128,7 +126,7 @@ async function fetchCheckFinancialData() {
         logDebug(`SPY Status: ${spyStatus} the 220-day SMA`);
 
         //
-        // --- (B) 3‑Month Treasury Rate (30 Days) ---
+        // --- (B) 3‑Month Treasury Rate (Using 40 Days) ---
         //
         const treasuryData = treasuryResponse.data;
         const treasuryRates = treasuryData.chart.result[0].indicators.quote[0].close;
@@ -282,10 +280,7 @@ async function fetchTickerFinancialData(ticker, range) {
             // Aggregate monthly averages for 10-year data
             const monthlyMap = {};
             historicalData.forEach(entry => {
-                // Example: "Sep 2024"
-                // We'll just take the first 3 chars for month (or more robust date approach).
-                // This is an oversimplification, but it works for demonstration.
-                const month = entry.date.slice(0, 7); 
+                const month = entry.date.slice(0, 7);
                 if (!monthlyMap[month]) {
                     monthlyMap[month] = [];
                 }
@@ -417,7 +412,7 @@ module.exports = async (req, res) => {
 
                     // Determine Treasury Rate Trend with Value and Timeframe
                     let treasuryRateTrendValue = "";
-                    const treasuryRateTimeframe = "last month"; // We fetched data from 30 days ago
+                    const treasuryRateTimeframe = "last month"; // Data fetched from 40 days with 30 days ago used for comparison
 
                     if (financialData.treasuryRateChange > 0) {
                         treasuryRateTrendValue = `⬆️ Increasing by ${financialData.treasuryRateChange}% since ${treasuryRateTimeframe}`;
