@@ -17,13 +17,13 @@ const TICKER_COMMAND = {
     options: [
         {
             name: "symbol",
-            type: 3, // STRING type
+            type: 3,
             description: "The stock ticker symbol (e.g., AAPL, GOOGL)",
             required: true,
         },
         {
             name: "timeframe",
-            type: 3, // STRING type
+            type: 3,
             description: "The timeframe for the chart (1d, 1mo, 1y, 3y, 10y)",
             required: true,
             choices: [
@@ -48,9 +48,7 @@ function logDebug(message) {
 // Helper function to determine risk category and allocation
 function determineRiskCategory(data) {
     const { spy, sma220, volatility, treasuryRate, isTreasuryFalling } = data;
-
     logDebug(`Determining risk category with SPY: ${spy}, SMA220: ${sma220}, Volatility: ${volatility}%, Treasury Rate: ${treasuryRate}%, Is Treasury Falling: ${isTreasuryFalling}`);
-
     if (spy > sma220) {
         if (volatility < 14) {
             return {
@@ -76,7 +74,6 @@ function determineRiskCategory(data) {
             }
         }
     } else {
-        // When SPY ≤ 220-day SMA, do not consider volatility, directly check Treasury rate
         if (isTreasuryFalling) {
             return {
                 category: "Risk Alt",
@@ -94,25 +91,16 @@ function determineRiskCategory(data) {
 // Helper function to fetch financial data for /check command
 async function fetchCheckFinancialData() {
     try {
-        // We fetch data for:
-        // 1) 220 days for SMA
-        // 2) 40 days for 3‑month Treasury (updated from 30d)
-        // 3) 40 days for volatility (ensures we get at least 21 trading days)
         const [spySMAResponse, treasuryResponse, spyVolResponse] = await Promise.all([
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=40d"), // Updated treasury fetch to include 40 days
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=40d"),
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=40d"),
         ]);
 
-        //
-        // --- (A) 220-Day SMA & Current SPY Price ---
-        //
         const spyData = spySMAResponse.data;
-        // Current SPY price
         const spyPrice = spyData.chart.result[0].meta.regularMarketPrice;
         logDebug(`SPY Price: ${spyPrice}`);
 
-        // Adjusted Close array for 220d
         const spyAdjClosePrices = spyData.chart.result[0].indicators.adjclose[0].adjclose;
         if (!spyAdjClosePrices || spyAdjClosePrices.length < 220) {
             throw new Error("Not enough data to calculate 220-day SMA.");
@@ -121,19 +109,14 @@ async function fetchCheckFinancialData() {
         const sma220 = (sum220 / 220).toFixed(2);
         logDebug(`220-day SMA: ${sma220}`);
 
-        // Over/Under the SMA
         const spyStatus = spyPrice > sma220 ? "Over" : "Under";
         logDebug(`SPY Status: ${spyStatus} the 220-day SMA`);
 
-        //
-        // --- (B) 3‑Month Treasury Rate (Using 40 Days) ---
-        //
         const treasuryData = treasuryResponse.data;
         const treasuryRates = treasuryData.chart.result[0].indicators.quote[0].close;
         if (!treasuryRates || treasuryRates.length === 0) {
             throw new Error("Treasury rate data is unavailable.");
         }
-        // Updated to 3 decimal digits:
         const currentTreasuryRate = parseFloat(treasuryRates[treasuryRates.length - 1]).toFixed(3);
         const oneMonthAgoTreasuryRate = treasuryRates.length >= 30
             ? parseFloat(treasuryRates[treasuryRates.length - 30]).toFixed(2)
@@ -141,33 +124,21 @@ async function fetchCheckFinancialData() {
         logDebug(`Current 3-Month Treasury Rate: ${currentTreasuryRate}%`);
         logDebug(`3-Month Treasury Rate 30 Days Ago: ${oneMonthAgoTreasuryRate}%`);
 
-        const treasuryRateChange = (currentTreasuryRate - oneMonthAgoTreasuryRate).toFixed(2);
+        const treasuryRateChange = (parseFloat(currentTreasuryRate) - parseFloat(oneMonthAgoTreasuryRate)).toFixed(2);
         logDebug(`Treasury Rate Change: ${treasuryRateChange}%`);
         const isTreasuryFalling = treasuryRateChange < 0;
         logDebug(`Is Treasury Rate Falling: ${isTreasuryFalling}`);
 
-        //
-        // --- (C) 21 Trading-Day Volatility from separate 40-day fetch ---
-        //
         const spyVolData = spyVolResponse.data;
         const spyVolAdjClose = spyVolData.chart.result[0].indicators.adjclose[0].adjclose;
-
         if (!spyVolAdjClose || spyVolAdjClose.length < 21) {
             throw new Error("Not enough data to calculate 21-day volatility.");
         }
-
-        // Compute daily returns over 40 days
-        const spyVolDailyReturns = spyVolAdjClose
-            .slice(1)
-            .map((price, idx) => price / spyVolAdjClose[idx] - 1);
-
-        // Slice the last 21 *actual* trading days
+        const spyVolDailyReturns = spyVolAdjClose.slice(1).map((price, idx) => price / spyVolAdjClose[idx] - 1);
         const recentReturns = spyVolDailyReturns.slice(-21);
         if (recentReturns.length < 21) {
             throw new Error("Not enough final data for 21-day volatility calculation.");
         }
-
-        // Annualize the volatility
         const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length;
         const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length;
         const dailyVolatility = Math.sqrt(variance);
@@ -179,9 +150,9 @@ async function fetchCheckFinancialData() {
             sma220: parseFloat(sma220).toFixed(2),
             spyStatus: spyStatus,
             volatility: parseFloat(annualizedVolatility).toFixed(2),
-            treasuryRate: parseFloat(currentTreasuryRate).toFixed(2),
+            treasuryRate: currentTreasuryRate, // now 3 decimals
             isTreasuryFalling: isTreasuryFalling,
-            treasuryRateChange: parseFloat(treasuryRateChange).toFixed(2), 
+            treasuryRateChange: treasuryRateChange, 
         };
     } catch (error) {
         console.error("Error fetching financial data:", error);
@@ -192,7 +163,6 @@ async function fetchCheckFinancialData() {
 // Helper function to fetch financial data for /ticker command
 async function fetchTickerFinancialData(ticker, range) {
     try {
-        // Define valid ranges and corresponding intervals
         const rangeOptions = {
             '1d': { range: '1d', interval: '1m' },
             '1mo': { range: '1mo', interval: '5m' },
@@ -201,17 +171,14 @@ async function fetchTickerFinancialData(ticker, range) {
             '10y': { range: '10y', interval: '1mo' },
         };
     
-        // Set default range if not provided or invalid
         const selectedRange = rangeOptions[range] ? range : '1d';
         const { range: yahooRange, interval } = rangeOptions[selectedRange];
     
-        // Fetch the financial data for the specified ticker and range
         const tickerResponse = await axios.get(
             `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${yahooRange}`
         );
         const tickerData = tickerResponse.data;
     
-        // Check if the response contains valid data
         if (
             !tickerData.chart.result ||
             tickerData.chart.result.length === 0 ||
@@ -220,14 +187,10 @@ async function fetchTickerFinancialData(ticker, range) {
             throw new Error("Invalid ticker symbol or data unavailable.");
         }
     
-        // Extract current price
         const currentPrice = parseFloat(tickerData.chart.result[0].meta.regularMarketPrice).toFixed(2);
-    
-        // Extract historical prices and timestamps
         const timestamps = tickerData.chart.result[0].timestamp;
         let prices = [];
     
-        // Determine if adjclose is available
         if (
             tickerData.chart.result[0].indicators.adjclose &&
             tickerData.chart.result[0].indicators.adjclose[0].adjclose
@@ -242,18 +205,15 @@ async function fetchTickerFinancialData(ticker, range) {
             throw new Error("Price data is unavailable.");
         }
     
-        // Handle missing data
         if (!timestamps || !prices || timestamps.length !== prices.length) {
             throw new Error("Incomplete historical data.");
         }
     
-        // Prepare historical data for Chart.js
         const historicalData = timestamps.map((timestamp, index) => {
             const dateObj = new Date(timestamp * 1000);
             let dateLabel = '';
     
             if (selectedRange === '1d' || selectedRange === '1mo') {
-                // Include time for intraday data
                 dateLabel = dateObj.toLocaleString('en-US', {
                     month: 'short',
                     day: 'numeric',
@@ -261,7 +221,6 @@ async function fetchTickerFinancialData(ticker, range) {
                     minute: '2-digit',
                 });
             } else {
-                // Only date for daily and longer intervals
                 dateLabel = dateObj.toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',
@@ -275,10 +234,8 @@ async function fetchTickerFinancialData(ticker, range) {
             };
         });
     
-        // Optional: Aggregate data for longer ranges to reduce data points
         let aggregatedData = historicalData;
         if (selectedRange === '10y') {
-            // Aggregate monthly averages for 10-year data
             const monthlyMap = {};
             historicalData.forEach(entry => {
                 const month = entry.date.slice(0, 7);
@@ -334,9 +291,7 @@ module.exports = async (req, res) => {
 
     let rawBody;
     try {
-        rawBody = await getRawBody(req, {
-            encoding: "utf-8",
-        });
+        rawBody = await getRawBody(req, { encoding: "utf-8" });
     } catch (error) {
         console.error("[ERROR] Failed to get raw body:", error);
         res.status(400).json({ error: "Invalid request body" });
@@ -404,17 +359,10 @@ module.exports = async (req, res) => {
             case CHECK_COMMAND.name.toLowerCase():
                 try {
                     logDebug("Handling /check command");
-
-                    // Fetch financial data
                     const financialData = await fetchCheckFinancialData();
-
-                    // Determine risk category and allocation
                     const { category, allocation } = determineRiskCategory(financialData);
-
-                    // Determine Treasury Rate Trend with Value and Timeframe
                     let treasuryRateTrendValue = "";
-                    const treasuryRateTimeframe = "last month"; // Data fetched from 40 days with 30 days ago used for comparison
-
+                    const treasuryRateTimeframe = "last month";
                     if (financialData.treasuryRateChange > 0) {
                         treasuryRateTrendValue = `⬆️ Increasing by ${financialData.treasuryRateChange}% since ${treasuryRateTimeframe}`;
                     } else if (financialData.treasuryRateChange < 0) {
@@ -422,15 +370,13 @@ module.exports = async (req, res) => {
                     } else {
                         treasuryRateTrendValue = "↔️ No change since last month";
                     }
-
-                    // Send the formatted embed with actual data and recommendation
                     res.status(200).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: {
                             embeds: [
                                 {
                                     title: "MFEA Analysis Status",
-                                    color: 3447003, // Blue banner
+                                    color: 3447003,
                                     fields: [
                                         { name: "SPY Price", value: `$${financialData.spy}`, inline: true },
                                         { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
@@ -438,16 +384,8 @@ module.exports = async (req, res) => {
                                         { name: "Volatility", value: `${financialData.volatility}%`, inline: true },
                                         { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
                                         { name: "Treasury Rate Trend", value: treasuryRateTrendValue, inline: true },
-                                        { 
-                                            name: "📈 **Risk Category**", 
-                                            value: category, 
-                                            inline: false 
-                                        },
-                                        { 
-                                            name: "💡 **Allocation Recommendation**", 
-                                            value: `**${allocation}**`,
-                                            inline: false 
-                                        },
+                                        { name: "📈 **Risk Category**", value: category, inline: false },
+                                        { name: "💡 **Allocation Recommendation**", value: `**${allocation}**`, inline: false },
                                     ],
                                     footer: {
                                         text: "MFEA Recommendation based on current market conditions",
@@ -470,15 +408,11 @@ module.exports = async (req, res) => {
             case TICKER_COMMAND.name.toLowerCase():
                 try {
                     logDebug("Handling /ticker command");
-
-                    // Extract options
                     const options = message.data.options;
                     const tickerOption = options.find(option => option.name === "symbol");
                     const timeframeOption = options.find(option => option.name === "timeframe");
-
                     const ticker = tickerOption ? tickerOption.value.toUpperCase() : null;
-                    const timeframe = timeframeOption ? timeframeOption.value : '1d'; // Default to '1d' if not provided
-
+                    const timeframe = timeframeOption ? timeframeOption.value : '1d';
                     if (!ticker) {
                         res.status(400).json({
                             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -486,11 +420,7 @@ module.exports = async (req, res) => {
                         });
                         return;
                     }
-
-                    // Fetch financial data for the specified ticker and timeframe
                     const tickerData = await fetchTickerFinancialData(ticker, timeframe);
-
-                    // Generate Chart Image URL using QuickChart.io
                     const chartConfig = {
                         type: 'line',
                         data: {
@@ -501,7 +431,7 @@ module.exports = async (req, res) => {
                                 borderColor: '#0070f3',
                                 backgroundColor: 'rgba(0, 112, 243, 0.1)',
                                 borderWidth: 2,
-                                pointRadius: 0, 
+                                pointRadius: 0,
                                 fill: true,
                             }]
                         },
@@ -512,47 +442,26 @@ module.exports = async (req, res) => {
                                         display: true,
                                         text: 'Date',
                                         color: '#333',
-                                        font: {
-                                            size: 14,
-                                        }
+                                        font: { size: 14 }
                                     },
-                                    ticks: {
-                                        maxTicksLimit: 10,
-                                        color: '#333',
-                                        maxRotation: 0,
-                                        minRotation: 0,
-                                    },
-                                    grid: {
-                                        display: false,
-                                    }
+                                    ticks: { maxTicksLimit: 10, color: '#333', maxRotation: 0, minRotation: 0 },
+                                    grid: { display: false }
                                 },
                                 y: {
                                     title: {
                                         display: true,
                                         text: 'Price ($)',
                                         color: '#333',
-                                        font: {
-                                            size: 14,
-                                        }
+                                        font: { size: 14 }
                                     },
-                                    ticks: {
-                                        color: '#333',
-                                    },
-                                    grid: {
-                                        color: 'rgba(0,0,0,0.1)',
-                                        borderDash: [5, 5],
-                                    }
+                                    ticks: { color: '#333' },
+                                    grid: { color: 'rgba(0,0,0,0.1)', borderDash: [5, 5] }
                                 }
                             },
                             plugins: {
                                 legend: {
                                     display: true,
-                                    labels: {
-                                        color: '#333',
-                                        font: {
-                                            size: 12,
-                                        }
-                                    }
+                                    labels: { color: '#333', font: { size: 12 } }
                                 },
                                 tooltip: {
                                     enabled: true,
@@ -560,44 +469,30 @@ module.exports = async (req, res) => {
                                     intersect: false,
                                     callbacks: {
                                         label: function(context) {
-                                            return  `$${parseFloat(context.parsed.y).toFixed(2)}`;
+                                            return `$${parseFloat(context.parsed.y).toFixed(2)}`;
                                         }
                                     }
                                 }
                             }
                         }
                     };
-
-                    // Encode chart configuration as JSON
                     const chartConfigEncoded = encodeURIComponent(JSON.stringify(chartConfig));
-
-                    // Construct QuickChart.io URL
                     const chartUrl = `https://quickchart.io/chart?c=${chartConfigEncoded}`;
-
-                    // Create Discord embed
                     const embed = {
                         title: `${tickerData.ticker} Financial Data`,
-                        color: 3447003, // Blue color
+                        color: 3447003,
                         fields: [
                             { name: "Current Price", value: tickerData.currentPrice, inline: true },
                             { name: "Timeframe", value: timeframe.toUpperCase(), inline: true },
                             { name: "Selected Range", value: timeframe.toUpperCase(), inline: true },
                             { name: "Data Source", value: "Yahoo Finance", inline: true },
                         ],
-                        image: {
-                            url: chartUrl,
-                        },
-                        footer: {
-                            text: "Data fetched from Yahoo Finance",
-                        },
+                        image: { url: chartUrl },
+                        footer: { text: "Data fetched from Yahoo Finance" },
                     };
-
-                    // Send the embed as a response
                     res.status(200).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: {
-                            embeds: [embed],
-                        },
+                        data: { embeds: [embed] },
                     });
                     logDebug("/ticker command successfully executed with dynamic data and chart");
                     return;
