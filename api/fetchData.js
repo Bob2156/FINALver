@@ -31,7 +31,8 @@ async function fetchCheckFinancialData() {
         if (!treasuryRates || treasuryRates.length === 0) {
             throw new Error("Treasury rate data is unavailable.");
         }
-        const currentTreasuryRate = parseFloat(treasuryRates[treasuryRates.length - 1]).toFixed(2);
+        // Updated to 3 decimal digits:
+        const currentTreasuryRate = parseFloat(treasuryRates[treasuryRates.length - 1]).toFixed(3);
         const oneMonthAgoTreasuryRate = treasuryRates.length >= 30
             ? parseFloat(treasuryRates[treasuryRates.length - 30]).toFixed(2)
             : parseFloat(treasuryRates[0]).toFixed(2); // Handle cases with less than 30 data points
