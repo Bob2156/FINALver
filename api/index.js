@@ -1,4 +1,4 @@
-// index.js - Adjusted Treasury lookback to find CLOSEST day ~30d ago
+// index.js - Using fixed 21 TRADING DAY lookback for Treasury change
 "use strict";
 
 const {
@@ -95,13 +95,13 @@ function determineRiskCategory(data) {
     }
 }
 
-// Helper function to fetch financial data for /check command (ADJUSTED Treasury lookback)
+// Helper function to fetch financial data for /check command (USING 21 TRADING DAY LOOKBACK)
 async function fetchCheckFinancialData() {
     try {
         logDebug("Fetching data for /check command...");
         const [spySMAResponse, treasuryResponse, spyVolResponse] = await Promise.all([
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=50d"), // Keep 50d range
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=50d"), // Keep 50d range to ensure enough history
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=40d"),
         ]);
 
@@ -118,7 +118,7 @@ async function fetchCheckFinancialData() {
         logDebug(`SPY Price: ${spyPrice}, SMA220: ${sma220.toFixed(2)}, Status: ${spyStatus}`);
 
 
-        // --- Treasury Data Processing (ADJUSTED LOOKBACK LOGIC) ---
+        // --- Treasury Data Processing (USING 21 TRADING DAY LOOKBACK) ---
         const treasuryData = treasuryResponse.data.chart.result[0];
          if (!treasuryData || !treasuryData.indicators?.quote?.[0]?.close || !treasuryData.timestamp) {
              throw new Error("Invalid or incomplete Treasury (^IRX) data structure from Yahoo Finance.");
@@ -129,49 +129,27 @@ async function fetchCheckFinancialData() {
         const validTreasuryData = treasuryTimestampsRaw
             .map((ts, i) => ({ timestamp: ts, rate: treasuryRatesRaw[i] }))
             .filter(item => item.timestamp != null && typeof item.rate === 'number')
-            .sort((a, b) => a.timestamp - b.timestamp);
+            .sort((a, b) => a.timestamp - b.timestamp); // Ensure chronological order is essential here
 
-        if (validTreasuryData.length < 2) { // Need at least 2 points to compare
-            throw new Error("Not enough valid Treasury rate data points to calculate change.");
+        // We need at least 22 data points to look back 21 trading days from the latest
+        if (validTreasuryData.length < 22) {
+            throw new Error(`Not enough valid Treasury data points for 21 trading day lookback (need 22, got ${validTreasuryData.length}).`);
         }
 
-        // Get the latest rate and timestamp
-        const latestTreasuryEntry = validTreasuryData[validTreasuryData.length - 1];
+        // Get the latest rate and timestamp (index length - 1)
+        const lastIndex = validTreasuryData.length - 1;
+        const latestTreasuryEntry = validTreasuryData[lastIndex];
         const currentTreasuryRateValue = latestTreasuryEntry.rate;
-        const lastTimestamp = latestTreasuryEntry.timestamp;
-        logDebug(`Current Rate: ${currentTreasuryRateValue} @ ${lastTimestamp} (${new Date(lastTimestamp * 1000).toISOString()})`);
+        logDebug(`Current Rate: ${currentTreasuryRateValue} @ Index ${lastIndex} (${new Date(latestTreasuryEntry.timestamp * 1000).toISOString()})`);
 
-        // Calculate the target timestamp (30 days before latest)
-        const thirtyDaysInMillis = 30 * 24 * 60 * 60 * 1000;
-        const targetTimestampRough = (lastTimestamp * 1000) - thirtyDaysInMillis;
-        logDebug(`Target Timestamp Rough (~30d ago): ${targetTimestampRough} (${new Date(targetTimestampRough).toISOString()})`);
+        // --- Calculate the index for 21 trading days ago ---
+        const targetIndex = lastIndex - 21;
+        // The check `validTreasuryData.length < 22` above ensures targetIndex is >= 0
+        const oneMonthAgoEntry = validTreasuryData[targetIndex];
+        // --- End of 21 Trading Day Lookback ---
 
-        // --- ADJUSTED: Find the entry CLOSET overall to the target time ---
-        let closestEntry = null;
-        let minDiff = Infinity;
-
-        // Iterate through all points *except* the last one
-        for (let i = 0; i < validTreasuryData.length - 1; i++) {
-            const entry = validTreasuryData[i];
-            const entryTimestampMillis = entry.timestamp * 1000;
-            const diff = Math.abs(entryTimestampMillis - targetTimestampRough);
-
-            if (diff < minDiff) {
-                minDiff = diff;
-                closestEntry = entry;
-            }
-        }
-
-        // Should always find a closest entry if validTreasuryData.length >= 2
-        if (!closestEntry) {
-             // Fallback (should be rare): use the second to last point if something went wrong
-             closestEntry = validTreasuryData[validTreasuryData.length - 2];
-             logDebug("Warning: Could not definitively find closest entry, using second-to-last point.");
-        }
-
-        logDebug(`Closest Entry Found: Rate ${closestEntry.rate} @ ${closestEntry.timestamp} (${new Date(closestEntry.timestamp * 1000).toISOString()}), Diff: ${minDiff}`);
-        const oneMonthAgoTreasuryRateValue = closestEntry.rate;
-        // --- End of Adjusted Lookback ---
+        logDebug(`Using Rate from 21 Trading Days Ago: ${oneMonthAgoEntry.rate} @ Index ${targetIndex} (${new Date(oneMonthAgoEntry.timestamp * 1000).toISOString()})`);
+        const oneMonthAgoTreasuryRateValue = oneMonthAgoEntry.rate;
 
         // Calculate change (as numbers first)
         const treasuryRateChangeValue = currentTreasuryRateValue - oneMonthAgoTreasuryRateValue;
@@ -212,6 +190,12 @@ async function fetchCheckFinancialData() {
         };
     } catch (error) {
         console.error("Error fetching financial data:", error);
+        // Add more specific error logging if available
+        if (error.response) {
+            console.error("Axios Error Data:", error.response.data);
+            console.error("Axios Error Status:", error.response.status);
+        }
+        // Re-throw generic message as per original code
         throw new Error("Failed to fetch financial data");
     }
 }
@@ -442,17 +426,17 @@ module.exports = async (req, res) => {
             case CHECK_COMMAND.name.toLowerCase():
                 try {
                     logDebug("Handling /check command");
-                    const financialData = await fetchCheckFinancialData(); // Uses ADJUSTED lookback
+                    const financialData = await fetchCheckFinancialData(); // Uses 21 TRADING DAY lookback
                     const { category, allocation } = determineRiskCategory(financialData);
 
                     // --- Using ORIGINAL Treasury Rate Trend Display Logic ---
                     let treasuryRateTrendValue = "";
-                    const treasuryRateTimeframe = "last month";
+                    const treasuryRateTimeframe = "last month"; // Still use this text label
                     const changeNum = parseFloat(financialData.treasuryRateChange);
 
-                    if (changeNum > 0.0001) {
+                    if (changeNum > 0.0001) { // Use tolerance
                         treasuryRateTrendValue = `⬆️ Increasing by ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe}`;
-                    } else if (changeNum < -0.0001) {
+                    } else if (changeNum < -0.0001) { // Use tolerance
                         treasuryRateTrendValue = `⬇️ ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe}`;
                     } else {
                         treasuryRateTrendValue = "↔️ No change since last month";
@@ -489,7 +473,8 @@ module.exports = async (req, res) => {
                     console.error("[ERROR] Failed to fetch financial data for /check command:", error);
                     res.status(500).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { content: "⚠️ Unable to retrieve financial data at this time. Please try again later." }
+                        // Include error message from fetch function if possible
+                        data: { content: `⚠️ Unable to retrieve financial data: ${error.message || 'Please try again later.'}` }
                     });
                     return;
                 }
