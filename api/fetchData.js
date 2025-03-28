@@ -1,216 +1,250 @@
+"use strict";
+
 const axios = require("axios");
 
-// Function to fetch financial data for /check command
+// --- Helper Functions (Duplicated from index.js for standalone use) ---
+
+function logDebug(message) {
+    console.log(`[fetchdata DEBUG] ${new Date().toISOString()} - ${message}`);
+}
+
+// --- Data Fetching Functions (Mirrors index.js logic) ---
+
 async function fetchCheckFinancialData() {
+    logDebug("Initiating fetchCheckFinancialData (standalone)...");
+    const SPY_URL = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d";
+    const IRX_URL = "https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=50d"; // Increased range
+
     try {
-        // Fetch SPY (price and historical data for 220 days) and Treasury Rate (40 days) concurrently
         const [spyResponse, treasuryResponse] = await Promise.all([
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=40d"), // 40 days for Treasury rate
+            axios.get(SPY_URL, { timeout: 10000 }),
+            axios.get(IRX_URL, { timeout: 10000 })
         ]);
 
-        const spyData = spyResponse.data;
-        const treasuryData = treasuryResponse.data;
+        // SPY Data Processing
+        const spyResult = spyResponse.data?.chart?.result?.[0];
+        if (!spyResult?.meta?.regularMarketPrice || !spyResult?.indicators?.adjclose?.[0]?.adjclose) {
+            throw new Error("Invalid or incomplete SPY data structure from Yahoo Finance.");
+        }
+        const spyPrice = parseFloat(spyResult.meta.regularMarketPrice);
+        const spyAdjClosePrices = spyResult.indicators.adjclose[0].adjclose.filter(p => typeof p === 'number');
 
-        // Extract SPY price
-        const spyPrice = spyData.chart.result[0].meta.regularMarketPrice;
-
-        // Extract 220-day SMA from Adjusted Close
-        const spyAdjClosePrices = spyData.chart.result[0].indicators.adjclose[0].adjclose;
-        if (!spyAdjClosePrices || spyAdjClosePrices.length < 220) {
-            throw new Error("Not enough data to calculate 220-day SMA.");
+        // Calculate 220-day SMA
+        if (spyAdjClosePrices.length < 220) {
+            throw new Error(`Insufficient SPY data for 220-day SMA (need 220, got ${spyAdjClosePrices.length}).`);
         }
         const sum220 = spyAdjClosePrices.slice(-220).reduce((acc, price) => acc + price, 0);
-        const sma220 = (sum220 / 220).toFixed(2);
-
-        // Determine if SPY is over or under the 220-day SMA
+        const sma220 = sum220 / 220;
         const spyStatus = spyPrice > sma220 ? "Over" : "Under";
 
-        // Extract 3-Month Treasury Rate with 3 decimal digits
-        const treasuryRates = treasuryData.chart.result[0].indicators.quote[0].close;
-        if (!treasuryRates || treasuryRates.length === 0) {
-            throw new Error("Treasury rate data is unavailable.");
+        // Calculate 21-day Volatility
+        if (spyAdjClosePrices.length < 22) {
+            throw new Error(`Insufficient SPY data for 21-day volatility (need 22, got ${spyAdjClosePrices.length}).`);
         }
-        const currentTreasuryRate = parseFloat(treasuryRates[treasuryRates.length - 1]).toFixed(3);
-        const oneMonthAgoTreasuryRate = treasuryRates.length >= 30
-            ? parseFloat(treasuryRates[treasuryRates.length - 30]).toFixed(3)
-            : parseFloat(treasuryRates[0]).toFixed(3);
-
-        // Determine Treasury Rate Change with 3 decimals
-        const treasuryRateChange = (parseFloat(currentTreasuryRate) - parseFloat(oneMonthAgoTreasuryRate)).toFixed(3);
-
-        // Determine if Treasury rate is falling
-        const isTreasuryFalling = treasuryRateChange < 0;
-
-        // Calculate Volatility from SPY Historical Data (21-Day Volatility)
-        const dailyReturns = spyAdjClosePrices.slice(1).map((price, index) => {
-            const previousPrice = spyAdjClosePrices[index];
-            return (price / previousPrice - 1);
-        });
-        const recentReturns = dailyReturns.slice(-21); // Last 21 daily returns
-        if (recentReturns.length < 21) {
-            throw new Error("Not enough data to calculate 21-day volatility.");
+        const relevantPricesForVol = spyAdjClosePrices.slice(-22);
+        const spyDailyReturns = [];
+        for (let i = 1; i < relevantPricesForVol.length; i++) {
+             if (relevantPricesForVol[i-1] !== 0) {
+                 spyDailyReturns.push(relevantPricesForVol[i] / relevantPricesForVol[i - 1] - 1);
+             } else {
+                 spyDailyReturns.push(0);
+             }
         }
-        const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length;
-        const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length;
+         if (spyDailyReturns.length !== 21) {
+              logDebug(`Warning (standalone): Calculated ${spyDailyReturns.length} daily returns instead of 21.`);
+              if(spyDailyReturns.length === 0) throw new Error("Could not calculate any daily returns for volatility (standalone).");
+         }
+        const meanReturn = spyDailyReturns.reduce((acc, r) => acc + r, 0) / spyDailyReturns.length;
+        const variance = spyDailyReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / spyDailyReturns.length;
         const dailyVolatility = Math.sqrt(variance);
-        const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100).toFixed(2); // Annualized volatility as percentage
+        const annualizedVolatility = dailyVolatility * Math.sqrt(252) * 100;
 
+        // Treasury (^IRX) Data Processing
+        const treasuryResult = treasuryResponse.data?.chart?.result?.[0];
+        if (!treasuryResult?.indicators?.quote?.[0]?.close || !treasuryResult?.timestamp) {
+            throw new Error("Invalid or incomplete Treasury (^IRX) data structure from Yahoo Finance.");
+        }
+        const treasuryRates = treasuryResult.indicators.quote[0].close;
+        const treasuryTimestamps = treasuryResult.timestamp;
+        const validTreasuryData = treasuryTimestamps
+            .map((ts, i) => ({ timestamp: ts, rate: treasuryRates[i] }))
+            .filter(item => item.timestamp != null && typeof item.rate === 'number')
+            .sort((a, b) => a.timestamp - b.timestamp);
+
+        if (validTreasuryData.length === 0) {
+            throw new Error("No valid Treasury rate data points found after filtering.");
+        }
+        const latestTreasuryEntry = validTreasuryData[validTreasuryData.length - 1];
+        const currentTreasuryRate = latestTreasuryEntry.rate;
+        const lastTimestamp = latestTreasuryEntry.timestamp;
+
+        // Find rate ~30 days ago
+        const thirtyDaysInMillis = 30 * 24 * 60 * 60 * 1000;
+        const targetTimestampRough = (lastTimestamp * 1000) - thirtyDaysInMillis;
+        let oneMonthAgoEntry = null;
+        for (let i = validTreasuryData.length - 2; i >= 0; i--) {
+             const entryTimestampMillis = validTreasuryData[i].timestamp * 1000;
+             if (entryTimestampMillis <= targetTimestampRough) {
+                 oneMonthAgoEntry = validTreasuryData[i];
+                 break;
+             }
+         }
+         if (!oneMonthAgoEntry && validTreasuryData.length > 0) {
+              oneMonthAgoEntry = validTreasuryData[0];
+              logDebug("Could not find Treasury rate ~30 days ago (standalone), using oldest available point.");
+         } else if (!oneMonthAgoEntry) {
+              throw new Error("Cannot determine Treasury rate from one month ago (no valid historical data found - standalone).")
+         }
+        const oneMonthAgoTreasuryRate = oneMonthAgoEntry.rate;
+        const treasuryRateChange = currentTreasuryRate - oneMonthAgoTreasuryRate;
+        const isTreasuryFalling = treasuryRateChange < -0.0001;
+
+        // Return data suitable for API response (can be formatted or raw numbers)
+        // Here, returning mostly raw numbers and calculated values
         return {
-            spy: parseFloat(spyPrice).toFixed(2),
-            sma220: parseFloat(sma220).toFixed(2),
-            spyStatus: spyStatus,
-            volatility: parseFloat(annualizedVolatility).toFixed(2),
-            treasuryRate: currentTreasuryRate, // 3 decimal digits
-            isTreasuryFalling: isTreasuryFalling,
-            treasuryRateChange: treasuryRateChange, // 3 decimal digits
+            spy: spyPrice,
+            sma220: sma220,
+            spyStatus: spyStatus, // String
+            volatility: annualizedVolatility,
+            treasuryRate: currentTreasuryRate,
+            isTreasuryFalling: isTreasuryFalling, // Boolean
+            treasuryRateChange: treasuryRateChange,
+            // Add timestamps for context if needed by the API consumer
+            lastSpyTimestamp: spyResult.timestamp?.slice(-1)[0],
+            lastTreasuryTimestamp: lastTimestamp,
+            monthAgoTreasuryTimestamp: oneMonthAgoEntry?.timestamp
         };
+
     } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error("Failed to fetch financial data");
+        console.error("[ERROR] fetchCheckFinancialData (standalone) failed:", error.response?.data || error.message);
+        const errorMessage = error.response?.data?.chart?.error?.description || error.message || "An unknown error occurred";
+        throw new Error(`Failed to fetch or process MFEA data (standalone): ${errorMessage}`);
     }
 }
 
-// Function to fetch financial data for /ticker command
 async function fetchTickerFinancialData(ticker, range) {
+    logDebug(`Initiating fetchTickerFinancialData (standalone) for ${ticker}, range ${range}...`);
+    const rangeOptions = {
+        '1d': { range: '1d', interval: '5m' },
+        '1mo': { range: '1mo', interval: '90m' },
+        '1y': { range: '1y', interval: '1d' },
+        '3y': { range: '3y', interval: '1wk' },
+        '10y': { range: '10y', interval: '1mo' },
+    };
+
+    const selectedRange = rangeOptions[range] ? range : '1d';
+    const { range: yahooRange, interval } = rangeOptions[selectedRange];
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${yahooRange}`;
+    logDebug(`Fetching URL (standalone): ${url}`);
+
     try {
-        // Define valid ranges and corresponding intervals
-        const rangeOptions = {
-            '1d': { range: '1d', interval: '1m' },
-            '1mo': { range: '1mo', interval: '5m' },
-            '1y': { range: '1y', interval: '1d' },
-            '3y': { range: '3y', interval: '1wk' },
-            '10y': { range: '10y', interval: '1mo' },
-        };
-
-        // Set default range if not provided or invalid
-        const selectedRange = rangeOptions[range] ? range : '1d';
-        const { range: yahooRange, interval } = rangeOptions[selectedRange];
-
-        // Fetch the financial data for the specified ticker and range
-        const tickerResponse = await axios.get(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${yahooRange}`);
-        const tickerData = tickerResponse.data;
-
-        // Check if the response contains valid data
-        if (
-            !tickerData.chart.result ||
-            tickerData.chart.result.length === 0 ||
-            !tickerData.chart.result[0].meta.regularMarketPrice
-        ) {
-            throw new Error("Invalid ticker symbol or data unavailable.");
+        const response = await axios.get(url, { timeout: 10000 });
+        const result = response.data?.chart?.result?.[0];
+        if (!result?.meta?.regularMarketPrice || !result?.timestamp || !result?.indicators) {
+             if (response.data?.chart?.error?.description) {
+                 throw new Error(`Yahoo Finance Error: ${response.data.chart.error.description}`);
+             }
+            throw new Error("Invalid or incomplete data structure received from Yahoo Finance.");
         }
 
-        // Extract current price
-        const currentPrice = parseFloat(tickerData.chart.result[0].meta.regularMarketPrice).toFixed(2);
-        // Extract historical prices and timestamps
-        const timestamps = tickerData.chart.result[0].timestamp;
+        const currentPrice = parseFloat(result.meta.regularMarketPrice);
+        const timestamps = result.timestamp;
         let prices = [];
-
-        // Determine if adjclose is available
-        if (
-            tickerData.chart.result[0].indicators.adjclose &&
-            tickerData.chart.result[0].indicators.adjclose[0].adjclose
-        ) {
-            prices = tickerData.chart.result[0].indicators.adjclose[0].adjclose;
-        } else if (
-            tickerData.chart.result[0].indicators.quote &&
-            tickerData.chart.result[0].indicators.quote[0].close
-        ) {
-            prices = tickerData.chart.result[0].indicators.quote[0].close;
+        if (result.indicators.adjclose?.[0]?.adjclose?.length > 0) {
+            prices = result.indicators.adjclose[0].adjclose;
+        } else if (result.indicators.quote?.[0]?.close?.length > 0) {
+            prices = result.indicators.quote[0].close;
         } else {
-            throw new Error("Price data is unavailable.");
+            throw new Error("Could not find valid price data (adjclose or close) in the response.");
         }
 
-        // Handle missing data
-        if (!timestamps || !prices || timestamps.length !== prices.length) {
-            throw new Error("Incomplete historical data.");
+        const validDataPoints = timestamps
+            .map((ts, i) => ({ timestamp: ts, price: prices[i] }))
+            .filter(dp => dp.timestamp != null && typeof dp.price === 'number')
+            .sort((a, b) => a.timestamp - b.timestamp);
+
+        if (validDataPoints.length === 0) {
+            throw new Error("No valid historical data points found after filtering.");
         }
 
-        // Prepare historical data for Chart.js
-        const historicalData = timestamps.map((timestamp, index) => {
-            const dateObj = new Date(timestamp * 1000);
-            let dateLabel = '';
-
-            if (selectedRange === '1d' || selectedRange === '1mo') {
-                // Include time for intraday data
-                dateLabel = dateObj.toLocaleString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                });
-            } else {
-                // Only date for daily and longer intervals
-                dateLabel = dateObj.toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                });
-            }
-
-            return {
-                date: dateLabel,
-                price: prices[index],
-            };
+        // Prepare data: Can return raw points or formatted labels depending on API needs
+        const historicalData = validDataPoints.map(dp => {
+             // Simple structure for API: timestamp and price
+             return {
+                 timestamp: dp.timestamp, // Keep original timestamp
+                 price: dp.price
+             };
+         });
+        /* // Alternative: Format dates like in index.js if consumer needs labels
+        const historicalDataFormatted = validDataPoints.map(dp => {
+             // ... (date formatting logic from index.js) ...
+             return { date: dateLabel, price: dp.price };
         });
-
-        // Optional: Aggregate data for longer ranges to reduce data points
-        let aggregatedData = historicalData;
-        if (selectedRange === '10y') {
-            // Aggregate monthly averages for 10-year data
-            const monthlyMap = {};
-            historicalData.forEach(entry => {
-                const month = entry.date.slice(0, 7); // e.g., 'Sep 2020'
-                if (!monthlyMap[month]) {
-                    monthlyMap[month] = [];
-                }
-                monthlyMap[month].push(entry.price);
-            });
-
-            aggregatedData = Object.keys(monthlyMap).map(month => {
-                const avgPrice = monthlyMap[month].reduce((sum, p) => sum + p, 0) / monthlyMap[month].length;
-                return {
-                    date: month,
-                    price: parseFloat(avgPrice).toFixed(2),
-                };
-            });
-        }
+        */
 
         return {
             ticker: ticker.toUpperCase(),
-            currentPrice: `$${currentPrice}`,
-            historicalData: aggregatedData,
-            selectedRange: selectedRange,
+            currentPrice: currentPrice,
+            historicalData: historicalData, // Using raw timestamp/price pairs here
+            selectedRange: selectedRange.toUpperCase(),
+            yahooInterval: interval, // Provide interval used
+            lastTimestamp: validDataPoints.slice(-1)[0]?.timestamp
         };
+
     } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error(error.response && error.response.data && error.response.data.chart && error.response.data.chart.error
-            ? error.response.data.chart.error.description
-            : "Failed to fetch financial data.");
+        console.error(`[ERROR] fetchTickerFinancialData (standalone) for ${ticker} failed:`, error.response?.data || error.message);
+        const errorMessage = error.response?.data?.chart?.error?.description || error.message || "An unknown error occurred";
+        throw new Error(`Failed to fetch data for ${ticker.toUpperCase()} (standalone): ${errorMessage}`);
     }
 }
 
-// Main handler for fetchData.js
-async function handler(req, res) {
-    const { ticker, range, type } = req.query;
+
+// --- Standalone Handler (Example for API endpoint) ---
+// This assumes fetchdata.js is deployed as its own Vercel function
+// or similar API endpoint.
+
+module.exports = async (req, res) => {
+    // Use query parameters for API endpoint
+    const { type, ticker, range } = req.query;
+    logDebug(`fetchdata.js handler invoked: type=${type}, ticker=${ticker}, range=${range}`);
+
+    res.setHeader('Content-Type', 'application/json');
 
     if (type === 'check') {
         try {
             const financialData = await fetchCheckFinancialData();
-            res.status(200).json(financialData);
+             // Format numbers for JSON response consistency if desired
+             const formattedData = {
+                 ...financialData,
+                 spy: financialData.spy.toFixed(2),
+                 sma220: financialData.sma220.toFixed(2),
+                 volatility: financialData.volatility.toFixed(2),
+                 treasuryRate: financialData.treasuryRate.toFixed(3),
+                 treasuryRateChange: financialData.treasuryRateChange.toFixed(3)
+             };
+             res.status(200).json(formattedData);
         } catch (error) {
-            res.status(500).json({ error: error.message });
+            console.error("[API ERROR /check]", error);
+            res.status(500).json({ error: error.message || "Failed to fetch check data." });
         }
-    } else if (ticker && range) {
+    } else if (type === 'ticker' && ticker && range) {
         try {
             const tickerData = await fetchTickerFinancialData(ticker, range);
-            res.status(200).json(tickerData);
+             // Format numbers for JSON response
+              const formattedData = {
+                  ...tickerData,
+                  currentPrice: tickerData.currentPrice.toFixed(2),
+                  historicalData: tickerData.historicalData.map(dp => ({
+                      timestamp: dp.timestamp,
+                      price: dp.price.toFixed(2) // Format price within historical data
+                  }))
+              };
+              res.status(200).json(formattedData);
         } catch (error) {
-            res.status(500).json({ error: error.message });
+            console.error("[API ERROR /ticker]", error);
+            res.status(500).json({ error: error.message || `Failed to fetch ticker data for ${ticker}.` });
         }
     } else {
-        res.status(400).json({ error: "Invalid parameters." });
+        res.status(400).json({ error: "Invalid request. Use ?type=check or ?type=ticker&ticker=SYMBOL&range=RANGE" });
     }
-}
-
-module.exports = handler;
+};
