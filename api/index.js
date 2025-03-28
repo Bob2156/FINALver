@@ -1,4 +1,4 @@
-// index.js - Modified original code with ONLY Treasury change fix
+// index.js - Modified original code with Treasury calculation fix AND clarified display
 "use strict";
 
 const {
@@ -95,7 +95,7 @@ function determineRiskCategory(data) {
     }
 }
 
-// Helper function to fetch financial data for /check command (Treasury logic fixed)
+// Helper function to fetch financial data for /check command (Treasury calculation fixed)
 async function fetchCheckFinancialData() {
     try {
         logDebug("Fetching data for /check command...");
@@ -125,7 +125,7 @@ async function fetchCheckFinancialData() {
         const spyStatus = spyPrice > sma220 ? "Over" : "Under";
         logDebug(`SPY Status: ${spyStatus} the 220-day SMA`);
 
-        // --- Treasury Data Processing (FIXED LOGIC HERE) ---
+        // --- Treasury Data Processing (FIXED CALCULATION LOGIC) ---
         const treasuryData = treasuryResponse.data.chart.result[0];
          if (!treasuryData || !treasuryData.indicators?.quote?.[0]?.close || !treasuryData.timestamp) {
              throw new Error("Invalid or incomplete Treasury (^IRX) data structure from Yahoo Finance.");
@@ -183,19 +183,15 @@ async function fetchCheckFinancialData() {
         // --- Volatility Calculation (Unchanged from original) ---
         const spyVolData = spyVolResponse.data;
         const spyVolAdjClose = spyVolData.chart.result[0].indicators.adjclose[0].adjclose;
-         // Original code checked for < 21, implies need 21 prices for 20 returns? Let's stick to original check.
-         // Note: Standard volatility usually uses N+1 prices for N returns. Original might be slightly off.
         if (!spyVolAdjClose || spyVolAdjClose.length < 21) {
             throw new Error("Not enough data to calculate 21-day volatility.");
         }
-        // Original calculation logic:
         const spyVolDailyReturns = spyVolAdjClose.slice(1).map((price, idx) => {
             const prevPrice = spyVolAdjClose[idx];
             return prevPrice === 0 ? 0 : (price / prevPrice - 1); // Handle potential 0 price
         });
-        const recentReturns = spyVolDailyReturns.slice(-21); // Original used last 21 returns from 40 day fetch
+        const recentReturns = spyVolDailyReturns.slice(-21);
         if (recentReturns.length < 21) {
-             // This condition might be hit if there were nulls filtered previously or less than 21 returns calculated
             throw new Error(`Not enough final data points for 21-day volatility calculation (got ${recentReturns.length}).`);
         }
         const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length;
@@ -290,43 +286,38 @@ async function fetchTickerFinancialData(ticker, range) {
                 });
             }
 
-             // Original returned price potentially null or non-number if source was bad
             return {
                 date: dateLabel,
-                price: prices[index],
+                price: prices[index], // Original returned price potentially null or non-number
             };
         });
 
         // Original 10y aggregation logic
         let aggregatedData = historicalData;
         if (selectedRange === '10y') {
-             // Filter out entries where price might not be a number before aggregation
              const validHistoricalData = historicalData.filter(entry => typeof entry.price === 'number');
-
              if (validHistoricalData.length > 0) {
                  const monthlyMap = {};
                  validHistoricalData.forEach(entry => {
-                     // Extract YYYY-MM for grouping
-                     const dateObj = new Date(entry.date); // Attempt to parse label back to date (might be fragile)
-                      if (!isNaN(dateObj)) { // Check if date parsing worked
+                     const dateObj = new Date(entry.date);
+                      if (!isNaN(dateObj)) {
                           const monthKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
                           if (!monthlyMap[monthKey]) {
-                              monthlyMap[monthKey] = { sum: 0, count: 0, label: entry.date.slice(0, 7) }; // Use original label format slice
+                              monthlyMap[monthKey] = { sum: 0, count: 0, label: entry.date.slice(0, 7) };
                           }
                           monthlyMap[monthKey].sum += entry.price;
                           monthlyMap[monthKey].count += 1;
                      }
                  });
-
-                 aggregatedData = Object.keys(monthlyMap).sort().map(monthKey => { // Sort keys chronologically
+                 aggregatedData = Object.keys(monthlyMap).sort().map(monthKey => {
                      const avgPrice = monthlyMap[monthKey].sum / monthlyMap[monthKey].count;
                      return {
-                         date: monthlyMap[monthKey].label, // Use the derived label (e.g., 'Sep 2020')
-                         price: parseFloat(avgPrice).toFixed(2), // Format as string like original
+                         date: monthlyMap[monthKey].label,
+                         price: parseFloat(avgPrice).toFixed(2), // Format as string
                      };
                  });
              } else {
-                 aggregatedData = []; // No valid data to aggregate
+                 aggregatedData = [];
              }
         }
 
@@ -334,21 +325,20 @@ async function fetchTickerFinancialData(ticker, range) {
         return {
             ticker: ticker.toUpperCase(),
             currentPrice: `$${currentPrice}`, // String with $
-            historicalData: aggregatedData, // Aggregated potentially
+            historicalData: aggregatedData,
             selectedRange: selectedRange, // Original used lowercase value
         };
     } catch (error) {
         console.error("Error fetching financial data:", error);
-         // Original error re-throwing logic
         throw new Error(
-            error.response?.data?.chart?.error?.description // Use optional chaining
+            error.response?.data?.chart?.error?.description
                 ? error.response.data.chart.error.description
                 : "Failed to fetch financial data."
         );
     }
 }
 
-// Main handler (Unchanged from original)
+// Main handler (Unchanged from original, except for /check display logic)
 module.exports = async (req, res) => {
     logDebug("Received a new request");
 
@@ -385,11 +375,19 @@ module.exports = async (req, res) => {
         return;
     }
 
+    // Ensure PUBLIC_KEY environment variable is set
+    if (!process.env.PUBLIC_KEY) {
+        console.error("[ERROR] PUBLIC_KEY environment variable is not set.");
+        // Return internal server error, but log the specific config issue
+        return res.status(500).json({ error: "Internal server configuration error."});
+    }
+
+
     const isValidRequest = verifyKey(
         rawBody,
         signature,
         timestamp,
-        process.env.PUBLIC_KEY // Ensure PUBLIC_KEY env var is set
+        process.env.PUBLIC_KEY
     );
 
     if (!isValidRequest) {
@@ -437,25 +435,24 @@ module.exports = async (req, res) => {
             case CHECK_COMMAND.name.toLowerCase():
                 try {
                     logDebug("Handling /check command");
-                    // Fetch financial data (uses the function with the fixed Treasury logic)
                     const financialData = await fetchCheckFinancialData();
-                    // Determine risk category and allocation
                     const { category, allocation } = determineRiskCategory(financialData);
-                    // Determine Treasury Rate Trend with Value and Timeframe
+
+                    // --- CLARIFIED Treasury Rate Trend Display ---
                     let treasuryRateTrendValue = "";
-                    const treasuryRateTimeframe = "last month"; // Original timeframe description
-                    // Use the string change value returned by fetchCheckFinancialData
-                    const changeNum = parseFloat(financialData.treasuryRateChange); // Convert back to number for comparison
-                    if (changeNum > 0) {
-                        // Use the absolute value of the string for display
-                        treasuryRateTrendValue = `⬆️ Increasing by ${financialData.treasuryRateChange}% since ${treasuryRateTimeframe}`;
-                    } else if (changeNum < 0) {
-                        // Use Math.abs on the number for display, keep original string sign logic
-                         treasuryRateTrendValue = `⬇️ ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe}`;
+                    const timeframeDesc = "~30d ago"; // Description for comparison point
+                    const changeNum = parseFloat(financialData.treasuryRateChange); // Convert back to number
+                    const changeAbsFormatted = Math.abs(changeNum).toFixed(3); // Absolute value, 3 decimals
+
+                    if (changeNum > 0.0001) { // Use small tolerance
+                        treasuryRateTrendValue = `⬆️ +${changeAbsFormatted} points vs ${timeframeDesc}`; // State absolute points change
+                    } else if (changeNum < -0.0001) { // Use small tolerance
+                         treasuryRateTrendValue = `⬇️ ${changeNum.toFixed(3)} points vs ${timeframeDesc}`; // Show negative sign and points
                     } else {
-                        treasuryRateTrendValue = "↔️ No change since last month";
+                        treasuryRateTrendValue = `↔️ Stable vs ${timeframeDesc}`; // Indicate stability
                     }
-                    // Send the formatted embed with actual data and recommendation (original structure)
+                    // --- End of Clarified Display Logic ---
+
                     res.status(200).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: {
@@ -469,7 +466,7 @@ module.exports = async (req, res) => {
                                         { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true },
                                         { name: "Volatility", value: `${financialData.volatility}%`, inline: true },
                                         { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
-                                        { name: "Treasury Rate Trend", value: treasuryRateTrendValue, inline: true },
+                                        { name: "Treasury Change", value: treasuryRateTrendValue, inline: true }, // Renamed field slightly
                                         { name: "📈 **Risk Category**", value: category, inline: false },
                                         { name: "💡 **Allocation Recommendation**", value: `**${allocation}**`, inline: false },
                                     ],
@@ -498,9 +495,8 @@ module.exports = async (req, res) => {
                     const tickerOption = options.find(option => option.name === "symbol");
                     const timeframeOption = options.find(option => option.name === "timeframe");
                     const ticker = tickerOption ? tickerOption.value.toUpperCase() : null;
-                    const timeframe = timeframeOption ? timeframeOption.value : '1d'; // Original default
+                    const timeframe = timeframeOption ? timeframeOption.value : '1d';
                     if (!ticker) {
-                        // Original error handling for missing ticker
                         res.status(400).json({
                             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                             data: { content: "❌ Ticker symbol is required." },
@@ -514,7 +510,6 @@ module.exports = async (req, res) => {
                     const chartConfig = {
                         type: 'line',
                         data: {
-                            // Map potentially non-numeric prices if aggregation didn't fix them
                             labels: tickerData.historicalData.map(entry => entry.date),
                             datasets: [{
                                 label: `${tickerData.ticker} Price`,
@@ -544,9 +539,7 @@ module.exports = async (req, res) => {
                                 tooltip: {
                                     enabled: true, mode: 'index', intersect: false,
                                     callbacks: {
-                                        // Original tooltip formatting
                                         label: function(context) {
-                                             // Attempt to format, default if not number
                                              const value = parseFloat(context.parsed?.y);
                                              return !isNaN(value) ? `$${value.toFixed(2)}` : 'N/A';
                                         }
@@ -563,8 +556,7 @@ module.exports = async (req, res) => {
                         title: `${tickerData.ticker} Financial Data`,
                         color: 3447003,
                         fields: [
-                            { name: "Current Price", value: tickerData.currentPrice, inline: true }, // Uses string with $
-                            // Original had timeframe and selected range duplicated? Kept as is.
+                            { name: "Current Price", value: tickerData.currentPrice, inline: true },
                             { name: "Timeframe", value: timeframe.toUpperCase(), inline: true },
                             { name: "Selected Range", value: tickerData.selectedRange.toUpperCase(), inline: true },
                             { name: "Data Source", value: "Yahoo Finance", inline: true },
@@ -580,7 +572,6 @@ module.exports = async (req, res) => {
                     return;
                 } catch (error) {
                     console.error("[ERROR] Failed to fetch financial data for /ticker command:", error);
-                    // Original error message
                     res.status(500).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: { content: "⚠️ Unable to retrieve financial data at this time. Please ensure the ticker symbol is correct and try again later." }
