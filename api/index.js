@@ -1,4 +1,4 @@
-// index.js - Reverted to: Original code + Fixed Treasury calculation ONLY
+// index.js - Adjusted Treasury lookback to find CLOSEST day ~30d ago
 "use strict";
 
 const {
@@ -95,37 +95,30 @@ function determineRiskCategory(data) {
     }
 }
 
-// Helper function to fetch financial data for /check command (Treasury calculation fixed)
+// Helper function to fetch financial data for /check command (ADJUSTED Treasury lookback)
 async function fetchCheckFinancialData() {
     try {
         logDebug("Fetching data for /check command...");
-        // We fetch data for:
-        // 1) 220 days for SMA (Original fetch)
-        // 2) 50 days for 3‑month Treasury (Increased slightly to help find ~30 day point)
-        // 3) 40 days for volatility (Original fetch)
         const [spySMAResponse, treasuryResponse, spyVolResponse] = await Promise.all([
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
-            // Increased range slightly for treasury to improve odds of finding ~30 day point
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=50d"),
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=40d"), // Original separate volatility fetch
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=50d"), // Keep 50d range
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=40d"),
         ]);
 
-        // --- SPY Price and SMA (Unchanged from original) ---
+        // --- SPY Price and SMA (Unchanged) ---
         const spyData = spySMAResponse.data;
         const spyPrice = spyData.chart.result[0].meta.regularMarketPrice;
-        logDebug(`SPY Price: ${spyPrice}`);
-
         const spyAdjClosePrices = spyData.chart.result[0].indicators.adjclose[0].adjclose;
         if (!spyAdjClosePrices || spyAdjClosePrices.length < 220) {
             throw new Error("Not enough data to calculate 220-day SMA.");
         }
-        const sum220 = spyAdjClosePrices.slice(-220).reduce((acc, price) => acc + (price || 0), 0); // Handle potential nulls in sum
-        const sma220 = (sum220 / 220); // Keep as number for now
-        logDebug(`220-day SMA: ${sma220.toFixed(2)}`);
+        const sum220 = spyAdjClosePrices.slice(-220).reduce((acc, price) => acc + (price || 0), 0);
+        const sma220 = (sum220 / 220);
         const spyStatus = spyPrice > sma220 ? "Over" : "Under";
-        logDebug(`SPY Status: ${spyStatus} the 220-day SMA`);
+        logDebug(`SPY Price: ${spyPrice}, SMA220: ${sma220.toFixed(2)}, Status: ${spyStatus}`);
 
-        // --- Treasury Data Processing (FIXED CALCULATION LOGIC) ---
+
+        // --- Treasury Data Processing (ADJUSTED LOOKBACK LOGIC) ---
         const treasuryData = treasuryResponse.data.chart.result[0];
          if (!treasuryData || !treasuryData.indicators?.quote?.[0]?.close || !treasuryData.timestamp) {
              throw new Error("Invalid or incomplete Treasury (^IRX) data structure from Yahoo Finance.");
@@ -133,54 +126,61 @@ async function fetchCheckFinancialData() {
         const treasuryRatesRaw = treasuryData.indicators.quote[0].close;
         const treasuryTimestampsRaw = treasuryData.timestamp;
 
-        // Combine timestamps and rates, filter nulls/invalids, and sort
         const validTreasuryData = treasuryTimestampsRaw
             .map((ts, i) => ({ timestamp: ts, rate: treasuryRatesRaw[i] }))
             .filter(item => item.timestamp != null && typeof item.rate === 'number')
-            .sort((a, b) => a.timestamp - b.timestamp); // Ensure chronological order
+            .sort((a, b) => a.timestamp - b.timestamp);
 
-        if (validTreasuryData.length === 0) {
-            throw new Error("Treasury rate data is unavailable after filtering.");
+        if (validTreasuryData.length < 2) { // Need at least 2 points to compare
+            throw new Error("Not enough valid Treasury rate data points to calculate change.");
         }
 
         // Get the latest rate and timestamp
         const latestTreasuryEntry = validTreasuryData[validTreasuryData.length - 1];
-        const currentTreasuryRateValue = latestTreasuryEntry.rate; // Number
-        const lastTimestamp = latestTreasuryEntry.timestamp; // Seconds
-        logDebug(`Current 3-Month Treasury Rate (value): ${currentTreasuryRateValue} from ${new Date(lastTimestamp * 1000).toLocaleDateString()}`);
+        const currentTreasuryRateValue = latestTreasuryEntry.rate;
+        const lastTimestamp = latestTreasuryEntry.timestamp;
+        logDebug(`Current Rate: ${currentTreasuryRateValue} @ ${lastTimestamp} (${new Date(lastTimestamp * 1000).toISOString()})`);
 
-        // Find the rate from ~30 days ago using timestamps
+        // Calculate the target timestamp (30 days before latest)
         const thirtyDaysInMillis = 30 * 24 * 60 * 60 * 1000;
-        const targetTimestampRough = (lastTimestamp * 1000) - thirtyDaysInMillis; // Target timestamp in milliseconds
+        const targetTimestampRough = (lastTimestamp * 1000) - thirtyDaysInMillis;
+        logDebug(`Target Timestamp Rough (~30d ago): ${targetTimestampRough} (${new Date(targetTimestampRough).toISOString()})`);
 
-        let oneMonthAgoEntry = null;
-        // Iterate backwards to find the *closest* trading day *on or before* the target time
-        for (let i = validTreasuryData.length - 2; i >= 0; i--) {
-             const entryTimestampMillis = validTreasuryData[i].timestamp * 1000;
-            if (entryTimestampMillis <= targetTimestampRough) {
-                oneMonthAgoEntry = validTreasuryData[i];
-                break;
+        // --- ADJUSTED: Find the entry CLOSET overall to the target time ---
+        let closestEntry = null;
+        let minDiff = Infinity;
+
+        // Iterate through all points *except* the last one
+        for (let i = 0; i < validTreasuryData.length - 1; i++) {
+            const entry = validTreasuryData[i];
+            const entryTimestampMillis = entry.timestamp * 1000;
+            const diff = Math.abs(entryTimestampMillis - targetTimestampRough);
+
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestEntry = entry;
             }
         }
-        // Fallback: Use oldest if no suitable point found
-        if (!oneMonthAgoEntry && validTreasuryData.length > 0) {
-            oneMonthAgoEntry = validTreasuryData[0];
-            logDebug("Could not find Treasury rate ~30 days ago, using oldest available point.");
-        } else if (!oneMonthAgoEntry) {
-             throw new Error("Cannot determine Treasury rate from one month ago (no valid historical data found).")
+
+        // Should always find a closest entry if validTreasuryData.length >= 2
+        if (!closestEntry) {
+             // Fallback (should be rare): use the second to last point if something went wrong
+             closestEntry = validTreasuryData[validTreasuryData.length - 2];
+             logDebug("Warning: Could not definitively find closest entry, using second-to-last point.");
         }
 
-        const oneMonthAgoTreasuryRateValue = oneMonthAgoEntry.rate; // Number
-        logDebug(`Using Treasury Rate (value) from ${new Date(oneMonthAgoEntry.timestamp * 1000).toLocaleDateString()} (~30 days prior): ${oneMonthAgoTreasuryRateValue}`);
+        logDebug(`Closest Entry Found: Rate ${closestEntry.rate} @ ${closestEntry.timestamp} (${new Date(closestEntry.timestamp * 1000).toISOString()}), Diff: ${minDiff}`);
+        const oneMonthAgoTreasuryRateValue = closestEntry.rate;
+        // --- End of Adjusted Lookback ---
 
         // Calculate change (as numbers first)
         const treasuryRateChangeValue = currentTreasuryRateValue - oneMonthAgoTreasuryRateValue;
-        logDebug(`Treasury Rate Change (value): ${treasuryRateChangeValue}`);
-        // Determine fall status (use small tolerance for float comparison)
-        const isTreasuryFalling = treasuryRateChangeValue < -0.0001;
+        logDebug(`Treasury Rate Change (value): ${currentTreasuryRateValue} - ${oneMonthAgoTreasuryRateValue} = ${treasuryRateChangeValue}`);
+        const isTreasuryFalling = treasuryRateChangeValue < -0.0001; // Use tolerance
         logDebug(`Is Treasury Rate Falling: ${isTreasuryFalling}`);
 
-        // --- Volatility Calculation (Unchanged from original) ---
+
+        // --- Volatility Calculation (Unchanged) ---
         const spyVolData = spyVolResponse.data;
         const spyVolAdjClose = spyVolData.chart.result[0].indicators.adjclose[0].adjclose;
         if (!spyVolAdjClose || spyVolAdjClose.length < 21) {
@@ -188,7 +188,7 @@ async function fetchCheckFinancialData() {
         }
         const spyVolDailyReturns = spyVolAdjClose.slice(1).map((price, idx) => {
             const prevPrice = spyVolAdjClose[idx];
-            return prevPrice === 0 ? 0 : (price / prevPrice - 1); // Handle potential 0 price
+            return prevPrice === 0 ? 0 : (price / prevPrice - 1);
         });
         const recentReturns = spyVolDailyReturns.slice(-21);
         if (recentReturns.length < 21) {
@@ -197,22 +197,21 @@ async function fetchCheckFinancialData() {
         const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length;
         const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length;
         const dailyVolatility = Math.sqrt(variance);
-        const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100); // Number
+        const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100);
         logDebug(`Calculated Annualized Volatility (21 trading days, original method): ${annualizedVolatility.toFixed(2)}%`);
 
-        // --- Return results formatted as strings, matching original function's output contract ---
+        // --- Return results formatted as strings (Unchanged) ---
         return {
-            spy: parseFloat(spyPrice).toFixed(2), // String, 2 decimals
-            sma220: sma220.toFixed(2),           // String, 2 decimals
-            spyStatus: spyStatus,                 // String ("Over" or "Under")
-            volatility: annualizedVolatility.toFixed(2), // String, 2 decimals
-            treasuryRate: currentTreasuryRateValue.toFixed(3), // String, 3 decimals
-            isTreasuryFalling: isTreasuryFalling,           // Boolean
-            treasuryRateChange: treasuryRateChangeValue.toFixed(3), // String, 3 decimals
+            spy: parseFloat(spyPrice).toFixed(2),
+            sma220: sma220.toFixed(2),
+            spyStatus: spyStatus,
+            volatility: annualizedVolatility.toFixed(2),
+            treasuryRate: currentTreasuryRateValue.toFixed(3),
+            isTreasuryFalling: isTreasuryFalling,
+            treasuryRateChange: treasuryRateChangeValue.toFixed(3), // Format final change to string
         };
     } catch (error) {
         console.error("Error fetching financial data:", error);
-        // Maintain original error throwing
         throw new Error("Failed to fetch financial data");
     }
 }
@@ -288,7 +287,7 @@ async function fetchTickerFinancialData(ticker, range) {
 
             return {
                 date: dateLabel,
-                price: prices[index], // Original returned price potentially null or non-number
+                price: prices[index],
             };
         });
 
@@ -299,21 +298,31 @@ async function fetchTickerFinancialData(ticker, range) {
              if (validHistoricalData.length > 0) {
                  const monthlyMap = {};
                  validHistoricalData.forEach(entry => {
-                     const dateObj = new Date(entry.date);
-                      if (!isNaN(dateObj)) {
+                     const dateStr = entry.date;
+                     let dateObj;
+                     if (dateStr.includes(',')) {
+                         dateObj = new Date(dateStr);
+                     } else if (dateStr.includes(' ')) {
+                         dateObj = new Date(dateStr.replace(' ', ' 1, '));
+                     }
+
+                      if (dateObj && !isNaN(dateObj)) {
                           const monthKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
                           if (!monthlyMap[monthKey]) {
-                              monthlyMap[monthKey] = { sum: 0, count: 0, label: entry.date.slice(0, 7) };
+                               const monthLabel = dateObj.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+                              monthlyMap[monthKey] = { sum: 0, count: 0, label: monthLabel };
                           }
                           monthlyMap[monthKey].sum += entry.price;
                           monthlyMap[monthKey].count += 1;
+                     } else {
+                        logDebug(`Could not parse date for aggregation: ${entry.date}`);
                      }
                  });
                  aggregatedData = Object.keys(monthlyMap).sort().map(monthKey => {
                      const avgPrice = monthlyMap[monthKey].sum / monthlyMap[monthKey].count;
                      return {
                          date: monthlyMap[monthKey].label,
-                         price: parseFloat(avgPrice).toFixed(2), // Format as string
+                         price: parseFloat(avgPrice).toFixed(2),
                      };
                  });
              } else {
@@ -324,9 +333,9 @@ async function fetchTickerFinancialData(ticker, range) {
         // Original return structure
         return {
             ticker: ticker.toUpperCase(),
-            currentPrice: `$${currentPrice}`, // String with $
+            currentPrice: `$${currentPrice}`,
             historicalData: aggregatedData,
-            selectedRange: selectedRange, // Original used lowercase value
+            selectedRange: selectedRange,
         };
     } catch (error) {
         console.error("Error fetching financial data:", error);
@@ -338,7 +347,7 @@ async function fetchTickerFinancialData(ticker, range) {
     }
 }
 
-// Main handler (Reverted to original /check display logic)
+// Main handler (Using original display logic for /check trend)
 module.exports = async (req, res) => {
     logDebug("Received a new request");
 
@@ -433,26 +442,22 @@ module.exports = async (req, res) => {
             case CHECK_COMMAND.name.toLowerCase():
                 try {
                     logDebug("Handling /check command");
-                    const financialData = await fetchCheckFinancialData();
+                    const financialData = await fetchCheckFinancialData(); // Uses ADJUSTED lookback
                     const { category, allocation } = determineRiskCategory(financialData);
 
-                    // --- ORIGINAL Treasury Rate Trend Display Logic ---
+                    // --- Using ORIGINAL Treasury Rate Trend Display Logic ---
                     let treasuryRateTrendValue = "";
-                    const treasuryRateTimeframe = "last month"; // Original timeframe description
-                    const changeNum = parseFloat(financialData.treasuryRateChange); // Convert back to number for comparison
+                    const treasuryRateTimeframe = "last month";
+                    const changeNum = parseFloat(financialData.treasuryRateChange);
 
-                    if (changeNum > 0) {
-                        // Use the absolute value of the string for display (Original had bug here potentially showing negative for increase)
-                        // Correcting slightly to use the number, but keep original format otherwise
+                    if (changeNum > 0.0001) {
                         treasuryRateTrendValue = `⬆️ Increasing by ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe}`;
-                    } else if (changeNum < 0) {
-                        // Use Math.abs on the number for display
-                         treasuryRateTrendValue = `⬇️ ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe}`;
+                    } else if (changeNum < -0.0001) {
+                        treasuryRateTrendValue = `⬇️ ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe}`;
                     } else {
                         treasuryRateTrendValue = "↔️ No change since last month";
                     }
                     // --- End of Original Display Logic ---
-
 
                     res.status(200).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -467,8 +472,7 @@ module.exports = async (req, res) => {
                                         { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true },
                                         { name: "Volatility", value: `${financialData.volatility}%`, inline: true },
                                         { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
-                                        // Uses the original trend value string and field name
-                                        { name: "Treasury Rate Trend", value: treasuryRateTrendValue, inline: true },
+                                        { name: "Treasury Rate Trend", value: treasuryRateTrendValue, inline: true }, // Original field name/value format
                                         { name: "📈 **Risk Category**", value: category, inline: false },
                                         { name: "💡 **Allocation Recommendation**", value: `**${allocation}**`, inline: false },
                                     ],
@@ -515,7 +519,7 @@ module.exports = async (req, res) => {
                             labels: tickerData.historicalData.map(entry => entry.date),
                             datasets: [{
                                 label: `${tickerData.ticker} Price`,
-                                data: tickerData.historicalData.map(entry => entry.price), // Pass data as is
+                                data: tickerData.historicalData.map(entry => entry.price),
                                 borderColor: '#0070f3',
                                 backgroundColor: 'rgba(0, 112, 243, 0.1)',
                                 borderWidth: 2,
