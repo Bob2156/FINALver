@@ -504,9 +504,9 @@ module.exports = async (req, res) => {
 
                     let rebalancingAdvice = "";
                     if (spyValue > upperBand) {
-                        rebalancingAdvice = `SPY ($${spyValue.toFixed(2)}) is **above** the +1% rebalancing band ($${upperBand.toFixed(2)}). Action may be warranted based on the allocation recommendation.`;
+                        rebalancingAdvice = `SPY ($${spyValue.toFixed(2)}) is **above** the +1% rebalancing band ($${upperBand.toFixed(2)}). Reccomended to shift allocations.`;
                     } else if (spyValue < lowerBand) {
-                        rebalancingAdvice = `SPY ($${spyValue.toFixed(2)}) is **below** the -1% rebalancing band ($${lowerBand.toFixed(2)}). Action may be warranted based on the allocation recommendation.`;
+                        rebalancingAdvice = `SPY ($${spyValue.toFixed(2)}) is **below** the -1% rebalancing band ($${lowerBand.toFixed(2)}). Reccomended to shift allocations.`;
                     } else {
                         // Within the band
                         rebalancingAdvice = `SPY ($${spyValue.toFixed(2)}) is **within** the ±1% rebalancing band ($${lowerBand.toFixed(2)} - $${upperBand.toFixed(2)}) around the SMA ($${sma220Value.toFixed(2)}).\nConsider holding existing allocation unless other factors (volatility, treasury trend) strongly suggest a change.`;
