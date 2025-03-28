@@ -1,4 +1,4 @@
-// index.js - Modified original code with Treasury calculation fix AND clarified display
+// index.js - Reverted to: Original code + Fixed Treasury calculation ONLY
 "use strict";
 
 const {
@@ -338,7 +338,7 @@ async function fetchTickerFinancialData(ticker, range) {
     }
 }
 
-// Main handler (Unchanged from original, except for /check display logic)
+// Main handler (Reverted to original /check display logic)
 module.exports = async (req, res) => {
     logDebug("Received a new request");
 
@@ -378,10 +378,8 @@ module.exports = async (req, res) => {
     // Ensure PUBLIC_KEY environment variable is set
     if (!process.env.PUBLIC_KEY) {
         console.error("[ERROR] PUBLIC_KEY environment variable is not set.");
-        // Return internal server error, but log the specific config issue
         return res.status(500).json({ error: "Internal server configuration error."});
     }
-
 
     const isValidRequest = verifyKey(
         rawBody,
@@ -438,20 +436,23 @@ module.exports = async (req, res) => {
                     const financialData = await fetchCheckFinancialData();
                     const { category, allocation } = determineRiskCategory(financialData);
 
-                    // --- CLARIFIED Treasury Rate Trend Display ---
+                    // --- ORIGINAL Treasury Rate Trend Display Logic ---
                     let treasuryRateTrendValue = "";
-                    const timeframeDesc = "~30d ago"; // Description for comparison point
-                    const changeNum = parseFloat(financialData.treasuryRateChange); // Convert back to number
-                    const changeAbsFormatted = Math.abs(changeNum).toFixed(3); // Absolute value, 3 decimals
+                    const treasuryRateTimeframe = "last month"; // Original timeframe description
+                    const changeNum = parseFloat(financialData.treasuryRateChange); // Convert back to number for comparison
 
-                    if (changeNum > 0.0001) { // Use small tolerance
-                        treasuryRateTrendValue = `⬆️ +${changeAbsFormatted} points vs ${timeframeDesc}`; // State absolute points change
-                    } else if (changeNum < -0.0001) { // Use small tolerance
-                         treasuryRateTrendValue = `⬇️ ${changeNum.toFixed(3)} points vs ${timeframeDesc}`; // Show negative sign and points
+                    if (changeNum > 0) {
+                        // Use the absolute value of the string for display (Original had bug here potentially showing negative for increase)
+                        // Correcting slightly to use the number, but keep original format otherwise
+                        treasuryRateTrendValue = `⬆️ Increasing by ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe}`;
+                    } else if (changeNum < 0) {
+                        // Use Math.abs on the number for display
+                         treasuryRateTrendValue = `⬇️ ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe}`;
                     } else {
-                        treasuryRateTrendValue = `↔️ Stable vs ${timeframeDesc}`; // Indicate stability
+                        treasuryRateTrendValue = "↔️ No change since last month";
                     }
-                    // --- End of Clarified Display Logic ---
+                    // --- End of Original Display Logic ---
+
 
                     res.status(200).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -466,7 +467,8 @@ module.exports = async (req, res) => {
                                         { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true },
                                         { name: "Volatility", value: `${financialData.volatility}%`, inline: true },
                                         { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
-                                        { name: "Treasury Change", value: treasuryRateTrendValue, inline: true }, // Renamed field slightly
+                                        // Uses the original trend value string and field name
+                                        { name: "Treasury Rate Trend", value: treasuryRateTrendValue, inline: true },
                                         { name: "📈 **Risk Category**", value: category, inline: false },
                                         { name: "💡 **Allocation Recommendation**", value: `**${allocation}**`, inline: false },
                                     ],
