@@ -67,12 +67,14 @@ function determineRiskCategory(data) {
                 allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)",
             };
         } else {
+            // Original logic: check treasury when volatility >= 24 and SPY > SMA
             if (data.isTreasuryFalling) {
                 return {
                     category: "Risk Alt",
                     allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
                 };
             } else {
+                 // If SPY > SMA, Volatility >= 24, and Treasury NOT falling -> Risk Off
                 return {
                     category: "Risk Off",
                     allocation: "100% SPY or 1×(100% SPY)",
@@ -95,6 +97,7 @@ function determineRiskCategory(data) {
     }
 }
 
+
 // Helper function to fetch financial data for /check command (USING 21 TRADING DAY LOOKBACK)
 async function fetchCheckFinancialData() {
     try {
@@ -112,10 +115,17 @@ async function fetchCheckFinancialData() {
         if (!spyAdjClosePrices || spyAdjClosePrices.length < 220) {
             throw new Error("Not enough data to calculate 220-day SMA.");
         }
-        const sum220 = spyAdjClosePrices.slice(-220).reduce((acc, price) => acc + (price || 0), 0);
-        const sma220 = (sum220 / 220);
+        // Ensure all prices are numbers before summing
+        const validSpyPrices = spyAdjClosePrices.slice(-220).filter(p => typeof p === 'number');
+        if (validSpyPrices.length < 220) {
+            logDebug(`Warning: Only found ${validSpyPrices.length} valid SPY prices out of the last 220 days.`);
+            // Decide how to handle this - use fewer points or throw error? Using fewer for now.
+            if (validSpyPrices.length === 0) throw new Error("No valid SPY prices found in the last 220 days.");
+        }
+        const sum220 = validSpyPrices.reduce((acc, price) => acc + price, 0);
+        const sma220 = (sum220 / validSpyPrices.length); // Divide by actual number of valid points
         const spyStatus = spyPrice > sma220 ? "Over" : "Under";
-        logDebug(`SPY Price: ${spyPrice}, SMA220: ${sma220.toFixed(2)}, Status: ${spyStatus}`);
+        logDebug(`SPY Price: ${spyPrice}, SMA220: ${sma220.toFixed(2)} (calculated from ${validSpyPrices.length} points), Status: ${spyStatus}`);
 
 
         // --- Treasury Data Processing (USING 21 TRADING DAY LOOKBACK) ---
@@ -164,15 +174,29 @@ async function fetchCheckFinancialData() {
         if (!spyVolAdjClose || spyVolAdjClose.length < 21) {
             throw new Error("Not enough data to calculate 21-day volatility.");
         }
-        const spyVolDailyReturns = spyVolAdjClose.slice(1).map((price, idx) => {
-            const prevPrice = spyVolAdjClose[idx];
+        const validVolPrices = spyVolAdjClose.filter(p => typeof p === 'number'); // Filter nulls/non-numbers
+        if (validVolPrices.length < 21) {
+             throw new Error(`Not enough valid data points for 21-day volatility calculation (need >= 21, got ${validVolPrices.length}).`);
+        }
+        // Calculate returns based on valid prices only
+        const spyVolDailyReturns = validVolPrices.slice(1).map((price, idx) => {
+            const prevPrice = validVolPrices[idx]; // idx here corresponds to idx in validVolPrices
+            // Basic check for division by zero, though unlikely with filtered data
             return prevPrice === 0 ? 0 : (price / prevPrice - 1);
         });
-        const recentReturns = spyVolDailyReturns.slice(-21);
-        if (recentReturns.length < 21) {
-            throw new Error(`Not enough final data points for 21-day volatility calculation (got ${recentReturns.length}).`);
+
+        // Make sure we have enough returns for the calculation (need 20 returns for 21 days)
+        if (spyVolDailyReturns.length < 20) {
+             throw new Error(`Not enough daily returns for 21-day volatility calculation (need 20, got ${spyVolDailyReturns.length}).`);
         }
+
+        const recentReturns = spyVolDailyReturns.slice(-21); // Use the most recent 21 returns
+        if (recentReturns.length < 21) { // Double check after slicing
+             throw new Error(`Not enough final returns for 21-day volatility calculation (need 21, got ${recentReturns.length}).`);
+        }
+
         const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length;
+        // Use N-1 for sample standard deviation if preferred, but N is common for financial vol
         const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length;
         const dailyVolatility = Math.sqrt(variance);
         const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100);
@@ -195,8 +219,10 @@ async function fetchCheckFinancialData() {
             console.error("Axios Error Data:", error.response.data);
             console.error("Axios Error Status:", error.response.status);
         }
-        // Re-throw generic message as per original code
-        throw new Error("Failed to fetch financial data");
+         // Log the specific error message that caused the catch
+        console.error("Caught Error Message:", error.message);
+        // Re-throw generic message or the specific one
+        throw new Error(`Failed to fetch financial data: ${error.message}`);
     }
 }
 
@@ -250,8 +276,13 @@ async function fetchTickerFinancialData(ticker, range) {
             throw new Error("Incomplete historical data.");
         }
 
-        const historicalData = timestamps.map((timestamp, index) => {
-            const dateObj = new Date(timestamp * 1000);
+        // Filter out null price entries before mapping
+        const validHistoricalEntries = timestamps
+            .map((timestamp, index) => ({ timestamp, price: prices[index] }))
+            .filter(entry => typeof entry.price === 'number' && entry.price !== null && !isNaN(entry.price));
+
+        const historicalData = validHistoricalEntries.map(entry => {
+            const dateObj = new Date(entry.timestamp * 1000);
             let dateLabel = '';
 
             if (selectedRange === '1d' || selectedRange === '1mo') {
@@ -271,46 +302,58 @@ async function fetchTickerFinancialData(ticker, range) {
 
             return {
                 date: dateLabel,
-                price: prices[index],
+                price: entry.price, // Use the validated price
             };
         });
 
-        // Original 10y aggregation logic
+        // Original 10y aggregation logic (applied to potentially filtered data)
         let aggregatedData = historicalData;
         if (selectedRange === '10y') {
-             const validHistoricalData = historicalData.filter(entry => typeof entry.price === 'number');
-             if (validHistoricalData.length > 0) {
+             // No need to filter again, historicalData is already filtered
+             if (historicalData.length > 0) {
                  const monthlyMap = {};
-                 validHistoricalData.forEach(entry => {
+                 historicalData.forEach(entry => {
                      const dateStr = entry.date;
                      let dateObj;
-                     if (dateStr.includes(',')) {
-                         dateObj = new Date(dateStr);
-                     } else if (dateStr.includes(' ')) {
-                         dateObj = new Date(dateStr.replace(' ', ' 1, '));
+                     // Attempt to parse the formatted date string back to a Date object
+                     // This logic might need refinement depending on the exact format from toLocaleDateString/toLocaleTimeString
+                     try {
+                        // More robust parsing might be needed
+                        if (dateStr.includes(',')) { // Assumes format like 'Jan 1, 2023' or 'Jan 1, 10:00 AM'
+                            dateObj = new Date(dateStr);
+                        } else if (dateStr.includes(' ')) { // Might be 'Jan 2023' - needs a day
+                           dateObj = new Date(dateStr.replace(/ (\d{4})/, ', $1')); // Add comma before year
+                        } else {
+                            dateObj = new Date(dateStr); // Fallback attempt
+                        }
+                     } catch (parseError) {
+                         logDebug(`Could not parse date for 10y aggregation: ${entry.date}. Error: ${parseError.message}`);
+                         dateObj = null;
                      }
 
-                      if (dateObj && !isNaN(dateObj)) {
+
+                      if (dateObj && !isNaN(dateObj.getTime())) { // Check if date is valid
                           const monthKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
                           if (!monthlyMap[monthKey]) {
+                               // Use the first entry's label format for consistency or generate month/year
                                const monthLabel = dateObj.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
                               monthlyMap[monthKey] = { sum: 0, count: 0, label: monthLabel };
                           }
-                          monthlyMap[monthKey].sum += entry.price;
+                          monthlyMap[monthKey].sum += entry.price; // Price is already a number
                           monthlyMap[monthKey].count += 1;
                      } else {
-                        logDebug(`Could not parse date for aggregation: ${entry.date}`);
+                        logDebug(`Skipping aggregation for invalid/unparseable date: ${entry.date}`);
                      }
                  });
                  aggregatedData = Object.keys(monthlyMap).sort().map(monthKey => {
                      const avgPrice = monthlyMap[monthKey].sum / monthlyMap[monthKey].count;
                      return {
                          date: monthlyMap[monthKey].label,
-                         price: parseFloat(avgPrice).toFixed(2),
+                         price: parseFloat(avgPrice).toFixed(2), // Format average price
                      };
                  });
              } else {
-                 aggregatedData = [];
+                 aggregatedData = []; // No valid data to aggregate
              }
         }
 
@@ -318,18 +361,26 @@ async function fetchTickerFinancialData(ticker, range) {
         return {
             ticker: ticker.toUpperCase(),
             currentPrice: `$${currentPrice}`,
-            historicalData: aggregatedData,
+            // Ensure aggregatedData contains objects with 'price' property as strings for the chart
+            historicalData: aggregatedData.map(entry => ({ ...entry, price: String(entry.price) })),
             selectedRange: selectedRange,
         };
     } catch (error) {
-        console.error("Error fetching financial data:", error);
+        console.error(`Error fetching financial data for ${ticker}:`, error);
+         // Log more details if available
+         if (error.response) {
+             console.error("Axios Error Data:", error.response.data);
+             console.error("Axios Error Status:", error.response.status);
+         }
+         console.error("Caught Error Message:", error.message);
         throw new Error(
             error.response?.data?.chart?.error?.description
                 ? error.response.data.chart.error.description
-                : "Failed to fetch financial data."
+                : `Failed to fetch financial data for ${ticker}: ${error.message}`
         );
     }
 }
+
 
 // Main handler (Using original display logic for /check trend)
 module.exports = async (req, res) => {
@@ -443,6 +494,26 @@ module.exports = async (req, res) => {
                     }
                     // --- End of Original Display Logic ---
 
+                    // --- Calculate Rebalancing Band ---
+                    const spyValue = parseFloat(financialData.spy);
+                    const sma220Value = parseFloat(financialData.sma220);
+                    const bandPercentage = 0.01; // 1%
+                    const bandValue = sma220Value * bandPercentage;
+                    const upperBand = sma220Value + bandValue;
+                    const lowerBand = sma220Value - bandValue;
+
+                    let rebalancingAdvice = "";
+                    if (spyValue > upperBand) {
+                        rebalancingAdvice = `SPY ($${spyValue.toFixed(2)}) is **above** the +1% rebalancing band ($${upperBand.toFixed(2)}). Action may be warranted based on the allocation recommendation.`;
+                    } else if (spyValue < lowerBand) {
+                        rebalancingAdvice = `SPY ($${spyValue.toFixed(2)}) is **below** the -1% rebalancing band ($${lowerBand.toFixed(2)}). Action may be warranted based on the allocation recommendation.`;
+                    } else {
+                        // Within the band
+                        rebalancingAdvice = `SPY ($${spyValue.toFixed(2)}) is **within** the ±1% rebalancing band ($${lowerBand.toFixed(2)} - $${upperBand.toFixed(2)}) around the SMA ($${sma220Value.toFixed(2)}).\nConsider holding existing allocation unless other factors (volatility, treasury trend) strongly suggest a change.`;
+                    }
+                    logDebug(`Rebalancing Band: Lower=$${lowerBand.toFixed(2)}, Upper=$${upperBand.toFixed(2)}, Advice=${rebalancingAdvice}`);
+                    // --- End Rebalancing Band Calculation ---
+
                     res.status(200).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         data: {
@@ -451,6 +522,7 @@ module.exports = async (req, res) => {
                                     title: "MFEA Analysis Status",
                                     color: 3447003,
                                     fields: [
+                                        // Original fields
                                         { name: "SPY Price", value: `$${financialData.spy}`, inline: true },
                                         { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
                                         { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true },
@@ -459,22 +531,24 @@ module.exports = async (req, res) => {
                                         { name: "Treasury Rate Trend", value: treasuryRateTrendValue, inline: true }, // Original field name/value format
                                         { name: "📈 **Risk Category**", value: category, inline: false },
                                         { name: "💡 **Allocation Recommendation**", value: `**${allocation}**`, inline: false },
+                                        // New Rebalancing Band field
+                                        { name: "⚖️ **Rebalancing Band Status (±1% SMA)**", value: rebalancingAdvice, inline: false },
                                     ],
                                     footer: {
-                                        text: "MFEA Recommendation based on current market conditions",
+                                        text: "MFEA Recommendation & Rebalancing Guidance", // Updated footer
                                     },
                                 },
                             ],
                         },
                     });
-                    logDebug("/check command successfully executed with fetched data");
+                    logDebug("/check command successfully executed with fetched data and rebalancing band");
                     return;
                 } catch (error) {
-                    console.error("[ERROR] Failed to fetch financial data for /check command:", error);
+                    console.error("[ERROR] Failed to process /check command:", error);
                     res.status(500).json({
                         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                         // Include error message from fetch function if possible
-                        data: { content: `⚠️ Unable to retrieve financial data: ${error.message || 'Please try again later.'}` }
+                        data: { content: `⚠️ Unable to process MFEA analysis: ${error.message || 'Please try again later.'}` }
                     });
                     return;
                 }
@@ -495,16 +569,27 @@ module.exports = async (req, res) => {
                         return;
                     }
 
+                    // Defer the response while fetching data and generating chart
+                    // Send an initial ACK response first
+                     res.status(200).json({
+                        type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+                     });
+                     logDebug(`Deferred response sent for /ticker ${ticker}`);
+
+
+                    // Now perform the async operations
                     const tickerData = await fetchTickerFinancialData(ticker, timeframe);
 
                     // Generate Chart Image URL using QuickChart.io (Original chart config)
                     const chartConfig = {
                         type: 'line',
                         data: {
+                            // Use the potentially aggregated and stringified price data
                             labels: tickerData.historicalData.map(entry => entry.date),
                             datasets: [{
                                 label: `${tickerData.ticker} Price`,
-                                data: tickerData.historicalData.map(entry => entry.price),
+                                // Ensure data points are numbers for QuickChart
+                                data: tickerData.historicalData.map(entry => parseFloat(entry.price)),
                                 borderColor: '#0070f3',
                                 backgroundColor: 'rgba(0, 112, 243, 0.1)',
                                 borderWidth: 2,
@@ -521,7 +606,7 @@ module.exports = async (req, res) => {
                                 },
                                 y: {
                                     title: { display: true, text: 'Price ($)', color: '#333', font: { size: 14 } },
-                                    ticks: { color: '#333' },
+                                    ticks: { color: '#333' }, // Consider adding a callback for formatting y-axis ticks as currency if needed
                                     grid: { color: 'rgba(0,0,0,0.1)', borderDash: [5, 5] }
                                 }
                             },
@@ -540,35 +625,49 @@ module.exports = async (req, res) => {
                         }
                     };
                     const chartConfigEncoded = encodeURIComponent(JSON.stringify(chartConfig));
-                    const chartUrl = `https://quickchart.io/chart?c=${chartConfigEncoded}`;
+                    const chartUrl = `https://quickchart.io/chart?c=${chartConfigEncoded}&w=600&h=400`; // Added width/height
 
                     // Original embed structure
                     const embed = {
-                        title: `${tickerData.ticker} Financial Data`,
+                        title: `${tickerData.ticker} Financial Data (${timeframe.toUpperCase()})`, // Add timeframe to title
                         color: 3447003,
                         fields: [
                             { name: "Current Price", value: tickerData.currentPrice, inline: true },
-                            { name: "Timeframe", value: timeframe.toUpperCase(), inline: true },
-                            { name: "Selected Range", value: tickerData.selectedRange.toUpperCase(), inline: true },
+                           // { name: "Timeframe", value: timeframe.toUpperCase(), inline: true }, // Redundant with title
+                            { name: "Selected Range", value: tickerData.selectedRange.toUpperCase(), inline: true }, // Keep this for clarity if different from input timeframe
                             { name: "Data Source", value: "Yahoo Finance", inline: true },
                         ],
                         image: { url: chartUrl },
-                        footer: { text: "Data fetched from Yahoo Finance" },
+                        footer: { text: "Data fetched from Yahoo Finance via quickchart.io" }, // Updated footer
                     };
-                    res.status(200).json({
-                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { embeds: [embed] },
-                    });
-                    logDebug("/ticker command successfully executed with dynamic data and chart");
-                    return;
+
+                   // Edit the original deferred response using a followup message
+                   const followupUrl = `https://discord.com/api/v10/webhooks/${message.application_id}/${message.token}/messages/@original`;
+                    try {
+                        await axios.patch(followupUrl, { embeds: [embed] });
+                        logDebug(`/ticker ${ticker} command successfully executed with dynamic data and chart`);
+                    } catch (followupError) {
+                         console.error(`[ERROR] Failed to send followup message for /ticker ${ticker}:`, followupError.response ? followupError.response.data : followupError.message);
+                         // Optionally try sending a simple error message if the embed followup failed
+                          await axios.patch(followupUrl, { content: "⚠️ Error generating chart or sending results." }).catch(e => console.error("Failed to send error followup:", e));
+                    }
+                    return; // Explicit return after handling followup
+
                 } catch (error) {
-                    console.error("[ERROR] Failed to fetch financial data for /ticker command:", error);
-                    res.status(500).json({
-                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { content: "⚠️ Unable to retrieve financial data at this time. Please ensure the ticker symbol is correct and try again later." }
-                    });
-                    return;
+                    console.error(`[ERROR] Failed to process /ticker command for ${message.data?.options?.find(o => o.name === 'symbol')?.value}:`, error);
+                    // Try to send an error message via followup if possible
+                    const followupUrl = `https://discord.com/api/v10/webhooks/${message.application_id}/${message.token}/messages/@original`;
+                    try {
+                         await axios.patch(followupUrl, {
+                              content: `⚠️ Unable to retrieve financial data for the specified ticker: ${error.message || 'Please ensure the symbol is correct and try again.'}`
+                         });
+                    } catch (followupError) {
+                         console.error("[ERROR] Failed to send error followup message:", followupError.response ? followupError.response.data : followupError.message);
+                    }
+                     // Ensure function returns after handling error
+                     return;
                 }
+
 
             default:
                 try {
