@@ -125,6 +125,7 @@ function calculateAllocationLogic(isSpyAboveSma, isVolBelow14, isVolBelow24, isT
 }
 
 // --- NEW: Function to determine the RECOMMENDED Allocation using Bands ---
+// *** UPDATED BANDS ***
 function determineRecommendationWithBands(data) {
     const spy = parseFloat(data.spy);
     const sma220 = parseFloat(data.sma220);
@@ -138,9 +139,11 @@ function determineRecommendationWithBands(data) {
     const isVolBelow24MFEA = volatility < 24;
 
     // Recommendation Band Thresholds & Checks
-    const smaBandPercent = 0.01; // 1%
-    const volBandAbsolute = 1.0; // 1% absolute for volatility bands (e.g., 13-15, 23-25)
-    const treasuryRecThreshold = -0.005; // Recommendation requires a more significant drop (-0.5% points)
+    // *** CHANGED: SMA Band to +/- 2% ***
+    const smaBandPercent = 0.02; // 2%
+    const volBandAbsolute = 1.0; // 1% absolute for volatility bands (e.g., 13-15, 23-25) - Stays 1%
+    // *** CHANGED: Treasury Recommendation Threshold to < -0.1% ***
+    const treasuryRecThreshold = -0.001; // Recommendation requires a drop of at least 0.1% points
 
     const smaLowerBand = sma220 * (1 - smaBandPercent);
     const smaUpperBand = sma220 * (1 + smaBandPercent);
@@ -153,7 +156,8 @@ function determineRecommendationWithBands(data) {
     let isSpyEffectivelyAboveSmaRec = (spy > smaUpperBand) ? true : (spy < smaLowerBand) ? false : isSpyAboveSmaMFEA;
     let isVolEffectivelyBelow14Rec = (volatility < vol14LowerBand) ? true : (volatility > vol14UpperBand) ? false : isVolBelow14MFEA;
     let isVolEffectivelyBelow24Rec = (volatility < vol24LowerBand) ? true : (volatility > vol24UpperBand) ? false : isVolBelow24MFEA;
-    const isTreasuryFallingRec = treasuryChange < treasuryRecThreshold; // Use stricter threshold
+    // *** This comparison now uses the new treasuryRecThreshold (-0.001) ***
+    const isTreasuryFallingRec = treasuryChange < treasuryRecThreshold;
 
     logDebug(`REC Checks: EffectiveSPY>SMA? ${isSpyEffectivelyAboveSmaRec} (Band ${smaLowerBand.toFixed(2)}-${smaUpperBand.toFixed(2)}), EffVol<14? ${isVolEffectivelyBelow14Rec} (Band ${vol14LowerBand}-${vol14UpperBand}), EffVol<24? ${isVolEffectivelyBelow24Rec} (Band ${vol24LowerBand}-${vol24UpperBand}), EffTrsFall? ${isTreasuryFallingRec} (Thresh ${treasuryRecThreshold})`);
 
@@ -162,7 +166,7 @@ function determineRecommendationWithBands(data) {
         isSpyEffectivelyAboveSmaRec,
         isVolEffectivelyBelow14Rec,
         isVolEffectivelyBelow24Rec,
-        isTreasuryFallingRec
+        isTreasuryFallingRec // Uses the boolean based on the new threshold
     );
 
     // Store Band Info for display/explanation
@@ -174,7 +178,8 @@ function determineRecommendationWithBands(data) {
          isVolIn24Band: volatility >= vol24LowerBand && volatility <= vol24UpperBand,
          trsChange: treasuryChange.toFixed(4), // Keep higher precision for internal checks
          trsMFEAThreshold: -0.0001,
-         trsRecThreshold: treasuryRecThreshold,
+         trsRecThreshold: treasuryRecThreshold, // Store the new threshold
+         // *** Treasury "in band" check uses the new threshold ***
          isTreasuryInBand: treasuryChange >= treasuryRecThreshold && treasuryChange < -0.0001
      };
 
@@ -239,35 +244,31 @@ async function fetchCheckFinancialData() {
         // Filter nulls for robustness
         const validVolPrices = spyVolAdjClose.filter(p => typeof p === 'number' && p !== null && p > 0);
 
-        // *** CHANGED: Need 22 prices for 21 returns ***
+        // Need 22 prices for 21 returns
         if (validVolPrices.length < 22) {
              throw new Error(`Not enough valid data for 22-day prices (need 22, got ${validVolPrices.length}) for 21 returns.`);
         }
 
-        // *** CHANGED: Use last 22 valid prices ***
+        // Use last 22 valid prices
         const relevantVolPrices = validVolPrices.slice(-22);
 
         // Calculate daily returns (this map will now produce 21 returns from 22 prices)
         const spyVolDailyReturns = relevantVolPrices.slice(1).map((price, idx) => {
             const prevPrice = relevantVolPrices[idx]; // prevPrice comes from the original array before slice(1)
-            // Prev price check is good
             return prevPrice === 0 ? 0 : (price / prevPrice - 1);
         });
 
-        // *** CHANGED: Ensure we have 21 returns ***
+        // Ensure we have 21 returns
         if (spyVolDailyReturns.length !== 21) {
             throw new Error(`Incorrect number of returns for vol calc (expected 21, got ${spyVolDailyReturns.length})`);
         }
 
         // Use the 21 returns
         const recentReturns = spyVolDailyReturns;
-        const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length; // Length is now 21
-        const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length; // Length is now 21
+        const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length;
+        const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length;
         const dailyVolatility = Math.sqrt(variance);
-        // Annualization factor sqrt(252) remains standard
         const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100);
-
-        // *** CHANGED: Updated log message ***
         logDebug(`Calculated Annualized Volatility (21 returns): ${annualizedVolatility.toFixed(2)}%`);
 
         // --- Return results (INCLUDE BOTH isTreasuryFalling and treasuryRateChange) ---
@@ -461,12 +462,12 @@ module.exports = async (req, res) => {
                  // Using immediate response structure from original code
                 try {
                     logDebug("Handling /check command");
-                    const financialData = await fetchCheckFinancialData(); // Returns object with strict boolean & raw change (NOW WITH 21-RETURN VOL)
+                    const financialData = await fetchCheckFinancialData(); // Returns object with strict boolean & raw change (NOW WITH 21-RETURN VOL & UPDATED BANDS)
 
                     // 1. Get Strict MFEA Result using original function
                     const { category: mfeaCategory, allocation: mfeaAllocation } = determineRiskCategory(financialData);
 
-                    // 2. Get Recommendation Result using new function
+                    // 2. Get Recommendation Result using new function (with updated band thresholds)
                     const { recommendedCategory, recommendedAllocation, bandInfo } = determineRecommendationWithBands(financialData);
 
                     // --- Treasury Rate Trend Display Logic (EXACT Original Formatting) ---
@@ -488,12 +489,14 @@ module.exports = async (req, res) => {
                     let bandInfluenceDescription = "";
                     const influences = [];
                     let recommendationDiffers = mfeaAllocation !== recommendedAllocation;
-                    if (bandInfo.isSpyInSmaBand) influences.push(`SPY within ±1% SMA`);
-                    if (bandInfo.isVolIn14Band) influences.push(`Vol within 13-15%`);
-                    else if (bandInfo.isVolIn24Band) influences.push(`Vol within 23-25%`);
-                    if (bandInfo.isTreasuryInBand) influences.push(`Treasury change between Rec/MFEA thresholds`);
+                    // Logic using updated bandInfo from determineRecommendationWithBands
+                    if (bandInfo.isSpyInSmaBand) influences.push(`SPY within ±2% SMA`); // Updated text
+                    if (bandInfo.isVolIn14Band) influences.push(`Vol within 13-15%`); // (±1% band)
+                    else if (bandInfo.isVolIn24Band) influences.push(`Vol within 23-25%`); // (±1% band)
+                    if (bandInfo.isTreasuryInBand) influences.push(`Treasury change between Rec(-0.1%)/MFEA thresholds`); // Updated text
                     else if (recommendationDiffers && !bandInfo.isSpyInSmaBand && !bandInfo.isVolIn14Band && !bandInfo.isVolIn24Band && bandInfo.trsChange < bandInfo.trsRecThreshold) {
-                        influences.push(`Treasury change crossed Rec. threshold`);
+                         // Use bandInfo.trsRecThreshold which is now -0.001
+                        influences.push(`Treasury change crossed Rec. threshold (<-0.1%)`); // Updated text
                     }
                     // Format the description string
                     if (!recommendationDiffers) {
@@ -501,7 +504,8 @@ module.exports = async (req, res) => {
                     } else {
                         bandInfluenceDescription = `Recommendation differs. Influences: ${influences.join('; ')}.`;
                     }
-                    bandInfluenceDescription += `\n*Bands: ±1% SMA/Vol, <-0.5% Treas*`; // Note about band definitions
+                     // *** CHANGED: Updated band description text ***
+                    bandInfluenceDescription += `\n*Bands: ±2% SMA, ±1% Vol, <-0.1% Treas*`;
                     // --- End Band Description ---
 
                     // --- Construct and Send Embed ---
@@ -530,7 +534,7 @@ module.exports = async (req, res) => {
                                         { name: "💡 Recommended Allocation", value: `**${recommendedAllocation}**`, inline: false }, // New field
 
                                         // Band Analysis
-                                        { name: "⚙️ Band Influence Analysis", value: bandInfluenceDescription, inline: false }, // New field
+                                        { name: "⚙️ Band Influence Analysis", value: bandInfluenceDescription, inline: false }, // New field with updated description text
                                     ],
                                     footer: {
                                         // Updated footer text
