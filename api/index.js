@@ -63,18 +63,18 @@ function determineRiskCategory(data) {
         if (volatilityValue < 14) {
             return {
                 category: "Risk On",
-                allocation: "100% UPRO (3× leveraged S&P 500) or 3×(100% SPY)",
+                allocation: "100% UPRO (3× leveraged S&P 500) or 3×(100% SPY)",
             };
         } else if (volatilityValue < 24) {
             return {
                 category: "Risk Mid",
-                allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)",
+                allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)",
             };
         } else { // Volatility >= 24
             if (data.isTreasuryFalling) { // Check the strict boolean
                 return {
                     category: "Risk Alt",
-                    allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
+                    allocation: "25% UPRO + 75% ZROZ (long-duration zero-coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
                 };
             } else {
                 return {
@@ -88,7 +88,7 @@ function determineRiskCategory(data) {
         if (data.isTreasuryFalling) { // Check the strict boolean
             return {
                 category: "Risk Alt",
-                allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
+                allocation: "25% UPRO + 75% ZROZ (long-duration zero-coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
             };
         } else {
             return {
@@ -105,19 +105,19 @@ function determineRiskCategory(data) {
 function calculateAllocationLogic(isSpyAboveSma, isVolBelow14, isVolBelow24, isTreasuryFalling) {
     if (isSpyAboveSma) {
         if (isVolBelow14) { // Effective Vol < 14% band
-            return { category: "Risk On", allocation: "100% UPRO (3× leveraged S&P 500) or 3×(100% SPY)" };
+            return { category: "Risk On", allocation: "100% UPRO (3× leveraged S&P 500) or 3×(100% SPY)" };
         } else if (isVolBelow24) { // Effective 14% <= Vol < 24% band
-            return { category: "Risk Mid", allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)" };
+            return { category: "Risk Mid", allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)" };
         } else { // Effective Vol >= 24% band
             if (isTreasuryFalling) { // Effective Treasury Falling?
-                return { category: "Risk Alt", allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)" };
+                return { category: "Risk Alt", allocation: "25% UPRO + 75% ZROZ (long-duration zero-coupon bonds) or 1.5×(50% SPY + 50% ZROZ)" };
             } else {
                 return { category: "Risk Off", allocation: "100% SPY or 1×(100% SPY)" };
             }
         }
     } else { // Effective SPY <= SMA band
         if (isTreasuryFalling) { // Effective Treasury Falling?
-            return { category: "Risk Alt", allocation: "25% UPRO + 75% ZROZ (long‑duration zero‑coupon bonds) or 1.5×(50% SPY + 50% ZROZ)" };
+            return { category: "Risk Alt", allocation: "25% UPRO + 75% ZROZ (long-duration zero-coupon bonds) or 1.5×(50% SPY + 50% ZROZ)" };
         } else {
             return { category: "Risk Off", allocation: "100% SPY or 1×(100% SPY)" };
         }
@@ -186,32 +186,32 @@ function determineRecommendationWithBands(data) {
 }
 
 
-// Helper function to fetch financial data for /check command (MODIFIED TO RETURN RAW CHANGE)
+// Helper function to fetch financial data for /check command (MODIFIED TO USE 21-DAY RETURNS FOR VOL)
 async function fetchCheckFinancialData() {
     try {
         logDebug("Fetching data for /check command...");
+        // Fetch ranges remain the same, 40d for SPY vol should typically be enough for 22 points
         const [spySMAResponse, treasuryResponse, spyVolResponse] = await Promise.all([
             axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=50d"), // Keep 50d range
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=40d"),
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=50d"),
+            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=40d"), // Fetch for Volatility
         ]);
 
-        // --- SPY Price and SMA (Unchanged from original) ---
+        // --- SPY Price and SMA (Unchanged from previous version) ---
         const spyData = spySMAResponse.data;
-         if (!spyData.chart?.result?.[0]?.meta?.regularMarketPrice || !spyData.chart?.result?.[0]?.indicators?.adjclose?.[0]?.adjclose) { throw new Error("Invalid SPY data for SMA."); }
+        if (!spyData.chart?.result?.[0]?.meta?.regularMarketPrice || !spyData.chart?.result?.[0]?.indicators?.adjclose?.[0]?.adjclose) { throw new Error("Invalid SPY data for SMA."); }
         const spyPrice = spyData.chart.result[0].meta.regularMarketPrice;
         const spyAdjClosePrices = spyData.chart.result[0].indicators.adjclose[0].adjclose;
         if (!spyAdjClosePrices || spyAdjClosePrices.length < 220) { throw new Error("Not enough data for 220-day SMA."); }
-        // Filter nulls/zeros before summing (more robust)
         const validSpyPrices = spyAdjClosePrices.slice(-220).filter(p => typeof p === 'number' && p !== null && p > 0);
         if (validSpyPrices.length < 220) { logDebug(`Warning: Only ${validSpyPrices.length} valid prices for SMA.`); if(validSpyPrices.length === 0) throw new Error("No valid SPY prices for SMA.");}
         const sum220 = validSpyPrices.reduce((acc, price) => acc + price, 0);
-        const sma220 = (sum220 / validSpyPrices.length); // Use actual count
+        const sma220 = (sum220 / validSpyPrices.length);
         const spyStatus = spyPrice > sma220 ? "Over" : "Under";
         logDebug(`SPY Price: ${spyPrice}, SMA220: ${sma220.toFixed(2)}, Status: ${spyStatus}`);
 
 
-        // --- Treasury Data Processing (Unchanged from original) ---
+        // --- Treasury Data Processing (Unchanged from previous version) ---
         const treasuryData = treasuryResponse.data.chart.result[0];
          if (!treasuryData || !treasuryData.indicators?.quote?.[0]?.close || !treasuryData.timestamp) { throw new Error("Invalid Treasury data structure."); }
         const treasuryRatesRaw = treasuryData.indicators.quote[0].close;
@@ -228,39 +228,54 @@ async function fetchCheckFinancialData() {
         const oneMonthAgoEntry = validTreasuryData[targetIndex];
         const oneMonthAgoTreasuryRateValue = oneMonthAgoEntry.rate;
         const treasuryRateChangeValue = currentTreasuryRateValue - oneMonthAgoTreasuryRateValue;
-        const isTreasuryFallingStrict = treasuryRateChangeValue < -0.0001; // Strict check
+        const isTreasuryFallingStrict = treasuryRateChangeValue < -0.0001;
         logDebug(`Treasury Rate Change: ${treasuryRateChangeValue.toFixed(4)}, IsFalling (Strict): ${isTreasuryFallingStrict}`);
 
 
-        // --- Volatility Calculation (Unchanged from original) ---
+        // --- Volatility Calculation (MODIFIED TO USE 21 RETURNS) ---
         const spyVolData = spyVolResponse.data;
          if (!spyVolData.chart?.result?.[0]?.indicators?.adjclose?.[0]?.adjclose) { throw new Error("Invalid SPY data for volatility."); }
         const spyVolAdjClose = spyVolData.chart.result[0].indicators.adjclose[0].adjclose;
         // Filter nulls for robustness
         const validVolPrices = spyVolAdjClose.filter(p => typeof p === 'number' && p !== null && p > 0);
-        if (validVolPrices.length < 21) { throw new Error(`Not enough valid data for 21-day volatility (need 21, got ${validVolPrices.length}).`); }
-        // Use last 21 valid prices for returns
-        const relevantVolPrices = validVolPrices.slice(-21);
+
+        // *** CHANGED: Need 22 prices for 21 returns ***
+        if (validVolPrices.length < 22) {
+             throw new Error(`Not enough valid data for 22-day prices (need 22, got ${validVolPrices.length}) for 21 returns.`);
+        }
+
+        // *** CHANGED: Use last 22 valid prices ***
+        const relevantVolPrices = validVolPrices.slice(-22);
+
+        // Calculate daily returns (this map will now produce 21 returns from 22 prices)
         const spyVolDailyReturns = relevantVolPrices.slice(1).map((price, idx) => {
-            const prevPrice = relevantVolPrices[idx];
+            const prevPrice = relevantVolPrices[idx]; // prevPrice comes from the original array before slice(1)
             // Prev price check is good
             return prevPrice === 0 ? 0 : (price / prevPrice - 1);
         });
-        // Ensure we have 20 returns
-        if (spyVolDailyReturns.length !== 20) { throw new Error(`Incorrect number of returns for vol calc (expected 20, got ${spyVolDailyReturns.length})`); }
-        const recentReturns = spyVolDailyReturns; // Use the 20 returns
-        const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length;
-        const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length;
+
+        // *** CHANGED: Ensure we have 21 returns ***
+        if (spyVolDailyReturns.length !== 21) {
+            throw new Error(`Incorrect number of returns for vol calc (expected 21, got ${spyVolDailyReturns.length})`);
+        }
+
+        // Use the 21 returns
+        const recentReturns = spyVolDailyReturns;
+        const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length; // Length is now 21
+        const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length; // Length is now 21
         const dailyVolatility = Math.sqrt(variance);
+        // Annualization factor sqrt(252) remains standard
         const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100);
-        logDebug(`Calculated Annualized Volatility (20 returns): ${annualizedVolatility.toFixed(2)}%`);
+
+        // *** CHANGED: Updated log message ***
+        logDebug(`Calculated Annualized Volatility (21 returns): ${annualizedVolatility.toFixed(2)}%`);
 
         // --- Return results (INCLUDE BOTH isTreasuryFalling and treasuryRateChange) ---
         return {
             spy: parseFloat(spyPrice).toFixed(2),
             sma220: sma220.toFixed(2),
             spyStatus: spyStatus,
-            volatility: annualizedVolatility.toFixed(2),
+            volatility: annualizedVolatility.toFixed(2), // The newly calculated volatility
             treasuryRate: currentTreasuryRateValue.toFixed(3),
             isTreasuryFalling: isTreasuryFallingStrict, // Pass the strict boolean
             treasuryRateChange: treasuryRateChangeValue.toFixed(4), // Pass the raw numeric change with precision
@@ -275,6 +290,7 @@ async function fetchCheckFinancialData() {
         throw new Error("Failed to fetch financial data");
     }
 }
+
 
 // Helper function to fetch financial data for /ticker command (Unchanged from original)
 async function fetchTickerFinancialData(ticker, range) {
@@ -343,7 +359,7 @@ async function fetchTickerFinancialData(ticker, range) {
                  dateLabel = dateObj.toLocaleString('en-US', options);
             } else {
                 options.month = 'short'; options.day = 'numeric'; options.year = 'numeric';
-                dateLabel = dateObj.toLocaleDateString('en-US', options);
+                 dateLabel = dateObj.toLocaleDateString('en-US', options);
             }
             // Keep price as number for aggregation step
             return { date: dateLabel, price: entry.price };
@@ -445,7 +461,7 @@ module.exports = async (req, res) => {
                  // Using immediate response structure from original code
                 try {
                     logDebug("Handling /check command");
-                    const financialData = await fetchCheckFinancialData(); // Returns object with strict boolean & raw change
+                    const financialData = await fetchCheckFinancialData(); // Returns object with strict boolean & raw change (NOW WITH 21-RETURN VOL)
 
                     // 1. Get Strict MFEA Result using original function
                     const { category: mfeaCategory, allocation: mfeaAllocation } = determineRiskCategory(financialData);
@@ -502,7 +518,7 @@ module.exports = async (req, res) => {
                                         { name: "SPY Price", value: `$${financialData.spy}`, inline: true },
                                         { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
                                         { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true },
-                                        { name: "Volatility", value: `${financialData.volatility}%`, inline: true },
+                                        { name: "Volatility", value: `${financialData.volatility}%`, inline: true }, // Reflects 21-return calculation
                                         { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
                                         { name: "Treasury Rate Trend", value: treasuryRateTrendValue, inline: true }, // Using new formatted value
 
