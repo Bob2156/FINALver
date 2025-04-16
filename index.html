@@ -1,177 +1,90 @@
-<!-- public/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>MFEA Testing</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f5f5f5; }
-    h1 { color: #0070f3; }
-    .controls { margin: 20px 0; }
-    input, select, button { padding: 8px; font-size: 14px; margin: 0 5px; }
-    .result, .error { margin-top: 10px; }
-    .chart-container { width: 90%; max-width: 800px; height: 400px; margin: 30px auto; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    canvas { width: 100% !important; height: 100% !important; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MFEA Analysis</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  body{font-family:Arial,sans-serif;text-align:center;background:#f5f5f5;padding:25px}
+  h1{color:#0070f3}
+  button{padding:10px 20px;font-size:16px;border:none;border-radius:5px;background:#0070f3;color:#fff;cursor:pointer}
+  button:hover{background:#005bb5}
+  #out{margin:20px auto;font-size:15px;max-width:800px}
+  .chart-box{width:90%;max-width:900px;height:440px;margin:25px auto;background:#fff;padding:15px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,.1)}
+  canvas{width:100%!important;height:100%!important}
+  .error{color:#d33;margin-top:10px}
+</style>
 </head>
 <body>
-  <h1>MFEA Testing</h1>
+<h1>MFEA Analysis Dashboard</h1>
 
-  <div class="controls">
-    <!-- Ticker controls -->
-    <input type="text" id="tickerInput" placeholder="Ticker (e.g. AAPL)" />
-    <select id="rangeSelect">
-      <option value="1d">1 Day</option>
-      <option value="1mo">1 Month</option>
-      <option value="1y">1 Year</option>
-      <option value="3y">3 Years</option>
-      <option value="10y">10 Years</option>
-    </select>
-    <button id="tickerBtn">Get Ticker</button>
-    <div class="result" id="tickerResult"></div>
-    <div class="error"  id="tickerError"></div>
-    <div class="chart-container"><canvas id="tickerChart"></canvas></div>
-  </div>
+<button id="runBtn">Run MFEA Analysis</button>
+<div id="out"></div>
+<div class="chart-box"><canvas id="chart"></canvas></div>
+<div class="error" id="err"></div>
 
-  <hr/>
+<script>
+let chart;
+const destroyChart = () => { if(chart){ chart.destroy(); chart=null; } };
 
-  <div class="controls">
-    <!-- MFEA /check controls -->
-    <button id="mfeaBtn">Run MFEA Analysis</button>
-    <div class="result" id="mfeaResult"></div>
-    <div class="error"  id="mfeaError"></div>
-    <div class="chart-container"><canvas id="mfeaChart"></canvas></div>
-  </div>
+document.getElementById('runBtn').onclick = async () => {
+  destroyChart();
+  const out = document.getElementById('out');
+  const err = document.getElementById('err');
+  out.textContent = 'Loading…';
+  err.textContent = '';
 
-  <script>
-    let tickerChart, mfeaChart;
+  try {
+    const r = await fetch('/api/mfea');
+    if(!r.ok) throw await r.json();
+    const d = await r.json();
 
-    // Helper to destroy old chart
-    function resetChart(chart) {
-      if (chart) {
-        chart.destroy();
-        return null;
+    // ---- textual summary ----
+    out.innerHTML = `
+      SPY: $${d.spy}, 220‑day SMA: $${d.sma220} (${d.spyStatus})<br/>
+      Volatility (21 d): ${d.volatility}%<br/>
+      3‑mo Rate: ${d.treasuryRate}% ${d.treasuryTrend}<br/>
+      <strong>MFEA → ${d.mfeaCategory}</strong>: ${d.mfeaAllocation}<br/>
+      <strong>Recommended → ${d.recommendedCategory}</strong>: ${d.recommendedAllocation}<br/>
+      <em>${Object.values(d.bandInfluenceDescription).some(v=>v)
+           ? 'Band‑influenced factors applied.'
+           : 'All factors clear of bands.'}</em>
+    `;
+
+    // ---- chart ----
+    const labels = d.priceHistory.map(e => e.date);
+    const prices = d.priceHistory.map(e => e.price);
+    const sma    = d.smaHistory.map(e => e.sma);
+
+    const ctx = document.getElementById('chart').getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label:'SPY Price', data:prices, borderColor:'#0070f3',
+            backgroundColor:'rgba(0,112,243,.08)', borderWidth:2,
+            pointRadius:0, fill:false },
+          { label:'220‑day SMA', data:sma, borderColor:'#ff6600',
+            borderDash:[6,6], borderWidth:1.5, pointRadius:0, fill:false }
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        interaction:{mode:'index',intersect:false},
+        scales:{
+          x:{title:{display:true,text:'Date'}},
+          y:{title:{display:true,text:'Price ($)'}}
+        }
       }
-      return null;
-    }
+    });
 
-    // TICKER
-    document.getElementById("tickerBtn").onclick = async () => {
-      const t = document.getElementById("tickerInput").value.trim().toUpperCase();
-      const r = document.getElementById("rangeSelect").value;
-      const resDiv = document.getElementById("tickerResult");
-      const errDiv = document.getElementById("tickerError");
-      resDiv.textContent = ""; errDiv.textContent = "";
-      tickerChart = resetChart(tickerChart);
-
-      if (!t) return errDiv.textContent = "Enter a ticker.";
-
-      try {
-        resDiv.textContent = "Loading…";
-        const resp = await fetch(`/api/fetchData?ticker=${t}&range=${r}`);
-        if (!resp.ok) throw await resp.json();
-        const data = await resp.json();
-
-        // Display text info
-        resDiv.innerHTML = `<strong>${data.ticker}</strong> — Current Price: ${data.currentPrice}`;
-
-        // Build chart
-        const ctx = document.getElementById("tickerChart").getContext("2d");
-        tickerChart = new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: data.historicalData.map(e => e.date),
-            datasets: [{
-              label: `${data.ticker} Price`,
-              data: data.historicalData.map(e => e.price),
-              borderColor: '#0070f3',
-              backgroundColor: 'rgba(0,112,243,0.1)',
-              borderWidth: 2, pointRadius: 0, fill: true
-            }]
-          },
-          options: {
-            responsive: true, maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-              tooltip: {
-                callbacks: {
-                  label: ctx => ` $${parseFloat(ctx.parsed.y).toFixed(2)}`
-                }
-              }
-            },
-            scales: {
-              x: { title: { display: true, text: 'Date' }, ticks: { maxRotation:0,minRotation:0 } },
-              y: { title: { display: true, text: 'Price ($)' } }
-            }
-          }
-        });
-
-      } catch (err) {
-        errDiv.textContent = err.error || err.message || "Failed to fetch ticker.";
-      }
-    };
-
-    // MFEA ANALYSIS
-    document.getElementById("mfeaBtn").onclick = async () => {
-      const resDiv = document.getElementById("mfeaResult");
-      const errDiv = document.getElementById("mfeaError");
-      resDiv.textContent = ""; errDiv.textContent = "";
-      mfeaChart = resetChart(mfeaChart);
-
-      try {
-        resDiv.textContent = "Loading…";
-        const resp = await fetch(`/api/fetchData?type=check`);
-        if (!resp.ok) throw await resp.json();
-        const d = await resp.json();
-
-        // Text summary
-        resDiv.innerHTML = `
-          SPY: $${d.spy}, 220‑day SMA: $${d.sma220} (${d.spyStatus})<br/>
-          Volatility (21d): ${d.volatility}%<br/>
-          3‑mo Rate: ${d.treasuryRate}% ${d.treasuryTrend}<br/>
-          <strong>MFEA →</strong> ${d.mfeaCategory}: ${d.mfeaAllocation}<br/>
-          <strong>⸺ Recommended →</strong> ${d.recommendedCategory}: ${d.recommendedAllocation}<br/>
-          <em>${d.bandInfluenceDescription}</em>
-        `;
-
-        // Chart: SPY price vs constant SMA
-        const ctx2 = document.getElementById("mfeaChart").getContext("2d");
-        mfeaChart = new Chart(ctx2, {
-          type: 'line',
-          data: {
-            labels: d.priceHistory.map(e => e.date),
-            datasets: [
-              {
-                label: 'SPY Price',
-                data: d.priceHistory.map(e => e.price),
-                borderColor: '#0070f3',
-                backgroundColor: 'rgba(0,112,243,0.1)',
-                borderWidth: 2, pointRadius: 0, fill: false
-              },
-              {
-                label: '220‑day SMA',
-                data: d.smaHistory.map(e => e.sma),
-                borderColor: '#ff6600',
-                borderDash: [5,5],
-                pointRadius: 0, fill: false
-              }
-            ]
-          },
-          options: {
-            responsive: true, maintainAspectRatio: false,
-            scales: {
-              x: { title: { display: true, text: 'Date' } },
-              y: { title: { display: true, text: 'Price ($)' } }
-            }
-          }
-        });
-
-      } catch (err) {
-        errDiv.textContent = err.error || err.message || "Failed to run MFEA.";
-      }
-    };
-  </script>
+  } catch (e) {
+    err.textContent = e.error || e.message || 'Error';
+    out.textContent = '';
+  }
+};
+</script>
 </body>
 </html>
