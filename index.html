@@ -1,101 +1,27 @@
+<!-- public/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MFEA TESTING</title>
-  <!-- Chart.js CDN -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>MFEA Testing</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      padding: 20px;
-      background-color: #f5f5f5;
-    }
-    h1 {
-      color: #0070f3;
-    }
-    .search-container {
-      margin-top: 30px;
-    }
-    input[type="text"] {
-      padding: 10px;
-      width: 200px;
-      font-size: 16px;
-      border: 2px solid #0070f3;
-      border-radius: 5px;
-    }
-    select {
-      padding: 10px;
-      font-size: 16px;
-      border: 2px solid #0070f3;
-      border-radius: 5px;
-      margin-left: 10px;
-    }
-    button {
-      padding: 10px 20px;
-      font-size: 16px;
-      cursor: pointer;
-      border: none;
-      border-radius: 5px;
-      background-color: #0070f3;
-      color: white;
-      margin-left: 10px;
-      transition: background-color 0.3s;
-    }
-    button:hover {
-      background-color: #005bb5;
-    }
-    .result {
-      margin-top: 20px;
-      font-size: 18px;
-      color: #333;
-    }
-    .error {
-      color: red;
-      margin-top: 20px;
-    }
-    /* Enhanced Responsive Chart */
-    #chartContainer {
-      width: 90%;
-      max-width: 1000px;
-      height: 700px; /* Increased height for vertical elongation */
-      margin: 40px auto;
-      background-color: white;
-      padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    canvas {
-      /* Ensure the canvas fills the container */
-      width: 100% !important;
-      height: 100% !important;
-    }
-    /* Help Section Styling */
-    .help-section {
-      margin-top: 40px;
-      text-align: left;
-      max-width: 800px;
-      margin-left: auto;
-      margin-right: auto;
-      background-color: #fff;
-      padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    .help-section h2 {
-      color: #0070f3;
-    }
-    .help-section ul li {
-      padding: 5px 0;
-    }
+    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f5f5f5; }
+    h1 { color: #0070f3; }
+    .controls { margin: 20px 0; }
+    input, select, button { padding: 8px; font-size: 14px; margin: 0 5px; }
+    .result, .error { margin-top: 10px; }
+    .chart-container { width: 90%; max-width: 800px; height: 400px; margin: 30px auto; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    canvas { width: 100% !important; height: 100% !important; }
   </style>
 </head>
 <body>
-  <h1>MFEA TESTING</h1>
-  <div class="search-container">
-    <input type="text" id="tickerInput" placeholder="Enter Ticker Symbol (e.g., AAPL)" />
+  <h1>MFEA Testing</h1>
+
+  <div class="controls">
+    <!-- Ticker controls -->
+    <input type="text" id="tickerInput" placeholder="Ticker (e.g. AAPL)" />
     <select id="rangeSelect">
       <option value="1d">1 Day</option>
       <option value="1mo">1 Month</option>
@@ -103,183 +29,149 @@
       <option value="3y">3 Years</option>
       <option value="10y">10 Years</option>
     </select>
-    <button id="searchBtn">Search</button>
-  </div>
-  <div class="result" id="result"></div>
-  <div class="error" id="error"></div>
-
-  <div id="chartContainer">
-    <canvas id="stockChart"></canvas>
+    <button id="tickerBtn">Get Ticker</button>
+    <div class="result" id="tickerResult"></div>
+    <div class="error"  id="tickerError"></div>
+    <div class="chart-container"><canvas id="tickerChart"></canvas></div>
   </div>
 
-  <div class="help-section">
-    <h2>How to Use</h2>
-    <p>Enter a valid stock ticker symbol (e.g., AAPL, GOOGL) and select a timeframe to view the current price and historical chart.</p>
-    <p><strong>Available Timeframes:</strong></p>
-    <ul style="list-style: none; padding: 0;">
-      <li>1 Day</li>
-      <li>1 Month</li>
-      <li>1 Year</li>
-      <li>3 Years</li>
-      <li>10 Years</li>
-    </ul>
+  <hr/>
+
+  <div class="controls">
+    <!-- MFEA /check controls -->
+    <button id="mfeaBtn">Run MFEA Analysis</button>
+    <div class="result" id="mfeaResult"></div>
+    <div class="error"  id="mfeaError"></div>
+    <div class="chart-container"><canvas id="mfeaChart"></canvas></div>
   </div>
 
   <script>
-    let stockChart; // To hold the Chart.js instance
+    let tickerChart, mfeaChart;
 
-    document.getElementById("searchBtn").addEventListener("click", async () => {
-      const ticker = document.getElementById("tickerInput").value.trim().toUpperCase();
-      const range = document.getElementById("rangeSelect").value;
-      const resultDiv = document.getElementById("result");
-      const errorDiv = document.getElementById("error");
-
-      // Reset the result and error sections
-      resultDiv.innerHTML = "";
-      errorDiv.innerHTML = "";
-
-      if (!ticker) {
-        errorDiv.innerHTML = "Please enter a ticker symbol.";
-        return;
+    // Helper to destroy old chart
+    function resetChart(chart) {
+      if (chart) {
+        chart.destroy();
+        return null;
       }
+      return null;
+    }
+
+    // TICKER
+    document.getElementById("tickerBtn").onclick = async () => {
+      const t = document.getElementById("tickerInput").value.trim().toUpperCase();
+      const r = document.getElementById("rangeSelect").value;
+      const resDiv = document.getElementById("tickerResult");
+      const errDiv = document.getElementById("tickerError");
+      resDiv.textContent = ""; errDiv.textContent = "";
+      tickerChart = resetChart(tickerChart);
+
+      if (!t) return errDiv.textContent = "Enter a ticker.";
 
       try {
-        // Show loading message
-        resultDiv.innerHTML = "Loading...";
+        resDiv.textContent = "Loading…";
+        const resp = await fetch(`/api/fetchData?ticker=${t}&range=${r}`);
+        if (!resp.ok) throw await resp.json();
+        const data = await resp.json();
 
-        // Fetch data from the API with the ticker and range as query parameters
-        const response = await fetch(`/api/fetchData?ticker=${encodeURIComponent(ticker)}&range=${encodeURIComponent(range)}`);
+        // Display text info
+        resDiv.innerHTML = `<strong>${data.ticker}</strong> — Current Price: ${data.currentPrice}`;
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || "Failed to fetch data.");
-        }
-
-        const data = await response.json();
-
-        // Display the fetched current price
-        resultDiv.innerHTML = `
-          <p><strong>Ticker:</strong> ${data.ticker}</p>
-          <p><strong>Current Price:</strong> ${data.currentPrice}</p>
-        `;
-
-        // Prepare data for Chart.js
-        const labels = data.historicalData.map(entry => entry.date);
-        const prices = data.historicalData.map(entry => entry.price);
-
-        // If a chart already exists, destroy it before creating a new one
-        if (stockChart) {
-          stockChart.destroy();
-        }
-
-        const ctx = document.getElementById('stockChart').getContext('2d');
-        stockChart = new Chart(ctx, {
+        // Build chart
+        const ctx = document.getElementById("tickerChart").getContext("2d");
+        tickerChart = new Chart(ctx, {
           type: 'line',
           data: {
-            labels: labels,
+            labels: data.historicalData.map(e => e.date),
             datasets: [{
               label: `${data.ticker} Price`,
-              data: prices,
+              data: data.historicalData.map(e => e.price),
               borderColor: '#0070f3',
-              backgroundColor: 'rgba(0, 112, 243, 0.1)',
-              borderWidth: 2,
-              pointRadius: 0, // Remove points for a cleaner line
-              fill: true,
+              backgroundColor: 'rgba(0,112,243,0.1)',
+              borderWidth: 2, pointRadius: 0, fill: true
             }]
           },
           options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: {
-              mode: 'index',
-              intersect: false,
-            },
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
             plugins: {
-              legend: {
-                display: true,
-                labels: {
-                  color: '#333',
-                  font: {
-                    size: 14,
-                  }
-                }
-              },
               tooltip: {
-                enabled: true,
-                mode: 'index',
-                intersect: false,
                 callbacks: {
-                  label: function(context) {
-                    return ` $${parseFloat(context.parsed.y).toFixed(2)}`;
-                  }
+                  label: ctx => ` $${parseFloat(ctx.parsed.y).toFixed(2)}`
                 }
               }
             },
             scales: {
-              x: {
-                display: true,
-                title: {
-                  display: true,
-                  text: 'Date',
-                  color: '#333',
-                  font: {
-                    size: 16,
-                  }
-                },
-                ticks: {
-                  maxTicksLimit: 10,
-                  color: '#333',
-                  maxRotation: 0,
-                  minRotation: 0,
-                },
-                grid: {
-                  display: false,
-                }
-              },
-              y: {
-                display: true,
-                title: {
-                  display: true,
-                  text: 'Price ($)',
-                  color: '#333',
-                  font: {
-                    size: 16,
-                  }
-                },
-                ticks: {
-                  color: '#333',
-                  // Chart.js handles dynamic scaling
-                },
-                grid: {
-                  color: 'rgba(0,0,0,0.1)',
-                  borderDash: [5, 5], // Dashed grid lines for better readability
-                }
-              }
+              x: { title: { display: true, text: 'Date' }, ticks: { maxRotation:0,minRotation:0 } },
+              y: { title: { display: true, text: 'Price ($)' } }
             }
           }
         });
 
-      } catch (error) {
-        // Show error message if something goes wrong
-        errorDiv.innerHTML = `Error: ${error.message}`;
-        console.error("Error fetching data:", error);
-        resultDiv.innerHTML = "";
-
-        // Destroy existing chart if error occurs
-        if (stockChart) {
-          stockChart.destroy();
-          stockChart = null;
-        }
+      } catch (err) {
+        errDiv.textContent = err.error || err.message || "Failed to fetch ticker.";
       }
-    });
+    };
 
-    // Allow pressing "Enter" to trigger the search
-    document.getElementById("tickerInput").addEventListener("keypress", function(event) {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        document.getElementById("searchBtn").click();
+    // MFEA ANALYSIS
+    document.getElementById("mfeaBtn").onclick = async () => {
+      const resDiv = document.getElementById("mfeaResult");
+      const errDiv = document.getElementById("mfeaError");
+      resDiv.textContent = ""; errDiv.textContent = "";
+      mfeaChart = resetChart(mfeaChart);
+
+      try {
+        resDiv.textContent = "Loading…";
+        const resp = await fetch(`/api/fetchData?type=check`);
+        if (!resp.ok) throw await resp.json();
+        const d = await resp.json();
+
+        // Text summary
+        resDiv.innerHTML = `
+          SPY: $${d.spy}, 220‑day SMA: $${d.sma220} (${d.spyStatus})<br/>
+          Volatility (21d): ${d.volatility}%<br/>
+          3‑mo Rate: ${d.treasuryRate}% ${d.treasuryTrend}<br/>
+          <strong>MFEA →</strong> ${d.mfeaCategory}: ${d.mfeaAllocation}<br/>
+          <strong>⸺ Recommended →</strong> ${d.recommendedCategory}: ${d.recommendedAllocation}<br/>
+          <em>${d.bandInfluenceDescription}</em>
+        `;
+
+        // Chart: SPY price vs constant SMA
+        const ctx2 = document.getElementById("mfeaChart").getContext("2d");
+        mfeaChart = new Chart(ctx2, {
+          type: 'line',
+          data: {
+            labels: d.priceHistory.map(e => e.date),
+            datasets: [
+              {
+                label: 'SPY Price',
+                data: d.priceHistory.map(e => e.price),
+                borderColor: '#0070f3',
+                backgroundColor: 'rgba(0,112,243,0.1)',
+                borderWidth: 2, pointRadius: 0, fill: false
+              },
+              {
+                label: '220‑day SMA',
+                data: d.smaHistory.map(e => e.sma),
+                borderColor: '#ff6600',
+                borderDash: [5,5],
+                pointRadius: 0, fill: false
+              }
+            ]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+              x: { title: { display: true, text: 'Date' } },
+              y: { title: { display: true, text: 'Price ($)' } }
+            }
+          }
+        });
+
+      } catch (err) {
+        errDiv.textContent = err.error || err.message || "Failed to run MFEA.";
       }
-    });
+    };
   </script>
 </body>
 </html>
