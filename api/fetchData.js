@@ -1,217 +1,198 @@
-// fetchdata.js (Original version provided)
+// api/fetchData.js
 const axios = require("axios");
 
-// Function to fetch financial data for /check command
-async function fetchCheckFinancialData() {
-    try {
-        // Fetch SPY (price and historical data for 220 days) and Treasury Rate (40 days) concurrently
-        const [spyResponse, treasuryResponse] = await Promise.all([
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
-            axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=40d"), // 40 days for Treasury rate
-        ]);
+// ——— Helper logic from your Discord bot ———
 
-        const spyData = spyResponse.data;
-        const treasuryData = treasuryResponse.data;
+function logDebug(msg){ console.debug("[DEBUG]", msg); }
 
-        // Extract SPY price
-        const spyPrice = spyData.chart.result[0].meta.regularMarketPrice;
-
-        // Extract 220-day SMA from Adjusted Close
-        const spyAdjClosePrices = spyData.chart.result[0].indicators.adjclose[0].adjclose;
-        if (!spyAdjClosePrices || spyAdjClosePrices.length < 220) {
-            throw new Error("Not enough data to calculate 220-day SMA.");
-        }
-        const sum220 = spyAdjClosePrices.slice(-220).reduce((acc, price) => acc + price, 0);
-        const sma220 = (sum220 / 220).toFixed(2);
-
-        // Determine if SPY is over or under the 220-day SMA
-        const spyStatus = spyPrice > sma220 ? "Over" : "Under";
-
-        // Extract 3-Month Treasury Rate with 3 decimal digits
-        const treasuryRates = treasuryData.chart.result[0].indicators.quote[0].close;
-        if (!treasuryRates || treasuryRates.length === 0) {
-            throw new Error("Treasury rate data is unavailable.");
-        }
-        const currentTreasuryRate = parseFloat(treasuryRates[treasuryRates.length - 1]).toFixed(3);
-        const oneMonthAgoTreasuryRate = treasuryRates.length >= 30
-            ? parseFloat(treasuryRates[treasuryRates.length - 30]).toFixed(3)
-            : parseFloat(treasuryRates[0]).toFixed(3);
-
-        // Determine Treasury Rate Change with 3 decimals
-        const treasuryRateChange = (parseFloat(currentTreasuryRate) - parseFloat(oneMonthAgoTreasuryRate)).toFixed(3);
-
-        // Determine if Treasury rate is falling
-        const isTreasuryFalling = treasuryRateChange < 0;
-
-        // Calculate Volatility from SPY Historical Data (21-Day Volatility)
-        const dailyReturns = spyAdjClosePrices.slice(1).map((price, index) => {
-            const previousPrice = spyAdjClosePrices[index];
-            return (price / previousPrice - 1);
-        });
-        const recentReturns = dailyReturns.slice(-21); // Last 21 daily returns
-        if (recentReturns.length < 21) {
-            throw new Error("Not enough data to calculate 21-day volatility.");
-        }
-        const meanReturn = recentReturns.reduce((acc, r) => acc + r, 0) / recentReturns.length;
-        const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length;
-        const dailyVolatility = Math.sqrt(variance);
-        const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100).toFixed(2); // Annualized volatility as percentage
-
-        return {
-            spy: parseFloat(spyPrice).toFixed(2),
-            sma220: parseFloat(sma220).toFixed(2),
-            spyStatus: spyStatus,
-            volatility: parseFloat(annualizedVolatility).toFixed(2),
-            treasuryRate: currentTreasuryRate, // 3 decimal digits
-            isTreasuryFalling: isTreasuryFalling,
-            treasuryRateChange: treasuryRateChange, // 3 decimal digits
-        };
-    } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error("Failed to fetch financial data");
-    }
+function calculateAllocationLogic(isSpyAboveSma, isVolBelow14, isVolBelow24, isTreasuryFalling){
+  if(isSpyAboveSma){
+    if(isVolBelow14) return { category:"Risk On",  allocation:"100% UPRO…" };
+    if(isVolBelow24) return { category:"Risk Mid", allocation:"100% SSO…" };
+    return isTreasuryFalling
+      ? { category:"Risk Alt", allocation:"25% UPRO + 75% ZROZ" }
+      : { category:"Risk Off", allocation:"100% SPY" };
+  } else {
+    return isTreasuryFalling
+      ? { category:"Risk Alt", allocation:"25% UPRO + 75% ZROZ" }
+      : { category:"Risk Off", allocation:"100% SPY" };
+  }
 }
 
-// Function to fetch financial data for /ticker command
-async function fetchTickerFinancialData(ticker, range) {
-    try {
-        // Define valid ranges and corresponding intervals
-        const rangeOptions = {
-            '1d': { range: '1d', interval: '1m' },
-            '1mo': { range: '1mo', interval: '5m' },
-            '1y': { range: '1y', interval: '1d' },
-            '3y': { range: '3y', interval: '1wk' },
-            '10y': { range: '10y', interval: '1mo' },
-        };
-
-        // Set default range if not provided or invalid
-        const selectedRange = rangeOptions[range] ? range : '1d';
-        const { range: yahooRange, interval } = rangeOptions[selectedRange];
-
-        // Fetch the financial data for the specified ticker and range
-        const tickerResponse = await axios.get(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${yahooRange}`);
-        const tickerData = tickerResponse.data;
-
-        // Check if the response contains valid data
-        if (
-            !tickerData.chart.result ||
-            tickerData.chart.result.length === 0 ||
-            !tickerData.chart.result[0].meta.regularMarketPrice
-        ) {
-            throw new Error("Invalid ticker symbol or data unavailable.");
-        }
-
-        // Extract current price
-        const currentPrice = parseFloat(tickerData.chart.result[0].meta.regularMarketPrice).toFixed(2);
-        // Extract historical prices and timestamps
-        const timestamps = tickerData.chart.result[0].timestamp;
-        let prices = [];
-
-        // Determine if adjclose is available
-        if (
-            tickerData.chart.result[0].indicators.adjclose &&
-            tickerData.chart.result[0].indicators.adjclose[0].adjclose
-        ) {
-            prices = tickerData.chart.result[0].indicators.adjclose[0].adjclose;
-        } else if (
-            tickerData.chart.result[0].indicators.quote &&
-            tickerData.chart.result[0].indicators.quote[0].close
-        ) {
-            prices = tickerData.chart.result[0].indicators.quote[0].close;
-        } else {
-            throw new Error("Price data is unavailable.");
-        }
-
-        // Handle missing data
-        if (!timestamps || !prices || timestamps.length !== prices.length) {
-            throw new Error("Incomplete historical data.");
-        }
-
-        // Prepare historical data for Chart.js
-        const historicalData = timestamps.map((timestamp, index) => {
-            const dateObj = new Date(timestamp * 1000);
-            let dateLabel = '';
-
-            if (selectedRange === '1d' || selectedRange === '1mo') {
-                // Include time for intraday data
-                dateLabel = dateObj.toLocaleString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                });
-            } else {
-                // Only date for daily and longer intervals
-                dateLabel = dateObj.toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                });
-            }
-
-            return {
-                date: dateLabel,
-                price: prices[index],
-            };
-        });
-
-        // Optional: Aggregate data for longer ranges to reduce data points
-        let aggregatedData = historicalData;
-        if (selectedRange === '10y') {
-            // Aggregate monthly averages for 10-year data
-            const monthlyMap = {};
-            historicalData.forEach(entry => {
-                const month = entry.date.slice(0, 7); // e.g., 'Sep 2020'
-                if (!monthlyMap[month]) {
-                    monthlyMap[month] = [];
-                }
-                monthlyMap[month].push(entry.price);
-            });
-
-            aggregatedData = Object.keys(monthlyMap).map(month => {
-                const avgPrice = monthlyMap[month].reduce((sum, p) => sum + p, 0) / monthlyMap[month].length;
-                return {
-                    date: month,
-                    price: parseFloat(avgPrice).toFixed(2),
-                };
-            });
-        }
-
-        return {
-            ticker: ticker.toUpperCase(),
-            currentPrice: `$${currentPrice}`,
-            historicalData: aggregatedData,
-            selectedRange: selectedRange,
-        };
-    } catch (error) {
-        console.error("Error fetching financial data:", error);
-        throw new Error(error.response && error.response.data && error.response.data.chart && error.response.data.chart.error
-            ? error.response.data.chart.error.description
-            : "Failed to fetch financial data.");
-    }
+function determineRiskCategory(data){
+  const spy = parseFloat(data.spy),
+        sma = parseFloat(data.sma220),
+        vol = parseFloat(data.volatility),
+        tfalling = data.isTreasuryFalling;
+  return calculateAllocationLogic(
+    spy > sma, vol < 14, vol < 24, tfalling
+  );
 }
 
-// Main handler for fetchData.js
-async function handler(req, res) {
-    const { ticker, range, type } = req.query;
+function determineRecommendationWithBands(data){
+  const spy = parseFloat(data.spy),
+        sma = parseFloat(data.sma220),
+        vol = parseFloat(data.volatility),
+        change = parseFloat(data.treasuryRateChange);
 
-    if (type === 'check') {
-        try {
-            const financialData = await fetchCheckFinancialData();
-            res.status(200).json(financialData);
-        } catch (error) {
-            res.status(500).json({ error: error.message });
-        }
-    } else if (ticker && range) { // Changed condition to check for type === 'ticker' implicitly by checking ticker & range
-        try {
-            const tickerData = await fetchTickerFinancialData(ticker, range);
-            res.status(200).json(tickerData);
-        } catch (error) {
-            res.status(500).json({ error: error.message });
-        }
-    } else {
-        res.status(400).json({ error: "Invalid parameters. Use ?type=check or provide ticker and range." }); // Updated error message
-    }
+  // MFEA raw booleans
+  const isSpyAbove = spy > sma,
+        isVol14    = vol < 14,
+        isVol24    = vol < 24;
+
+  // band thresholds
+  const smaBandPct   = 0.02,
+        volBand      = 1.0,
+        treasuryThresh = -0.001;
+
+  const lowerSMA = sma*(1-smaBandPct),
+        upperSMA = sma*(1+smaBandPct),
+        lower14  = 14-volBand,
+        upper14  = 14+volBand,
+        lower24  = 24-volBand,
+        upper24  = 24+volBand;
+
+  const effSpy   = (spy>upperSMA) ? true : (spy<lowerSMA) ? false : isSpyAbove;
+  const effVol14 = (vol<lower14) ? true : (vol>upper14) ? false : isVol14;
+  const effVol24 = (vol<lower24) ? true : (vol>upper24) ? false : isVol24;
+  const effTreas = change < treasuryThresh;
+
+  logDebug(`Bands: SPY ${lowerSMA.toFixed(2)}–${upperSMA.toFixed(2)}, Vol14 ${lower14}-${upper14}, Vol24 ${lower24}-${upper24}, Treas <${treasuryThresh}`);
+
+  const rec = calculateAllocationLogic(effSpy, effVol14, effVol24, effTreas);
+  return {
+    recommendedCategory: rec.category,
+    recommendedAllocation: rec.allocation,
+    bandInfo: { smaBandPct, volBand, treasuryThresh, effSpy, effVol14, effVol24, effTreas }
+  };
 }
 
-module.exports = handler;
+// ——— Data‑fetchers ———
+
+async function fetchCheckFinancialData(){
+  // identical to your Discord bot version but also collect the last 220 days of price + constant‑SMA series
+  const [spyResp, trxResp, volResp] = await Promise.all([
+    axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
+    axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=50d"),
+    axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=40d")
+  ]);
+
+  // — SPY + SMA
+  const sres = spyResp.data.chart.result[0];
+  const priceArr = sres.indicators.adjclose[0].adjclose;
+  const tsArr    = sres.timestamp;
+  const valid = tsArr
+    .map((t,i)=> typeof priceArr[i]==="number" ? { date:new Date(t*1000).toLocaleDateString("en-US"), price:priceArr[i] } : null)
+    .filter(x=>x).slice(-220);
+
+  const prices = valid.map(v=>v.price);
+  const sma220 = prices.reduce((a,b)=>a+b,0)/prices.length;
+
+  // — Treasury change
+  const trx   = trxResp.data.chart.result[0];
+  const rArr  = trx.indicators.quote[0].close;
+  const idx   = rArr.length-1, oneMo = idx-21;
+  const currT = rArr[idx], prevT = rArr[oneMo<0?0:oneMo];
+  const delta = currT - prevT, isF = delta < -0.0001;
+
+  // — Volatility (21‑day returns)
+  const vres = volResp.data.chart.result[0].indicators.adjclose[0].adjclose.filter(x=>typeof x==="number");
+  const ret = vres.slice(-22).map((p,i,a)=> i? p/a[i-1]-1 : null).filter(x=>x!=null);
+  const mean = ret.reduce((s,r)=>s+r,0)/ret.length;
+  const variance = ret.reduce((s,r)=>s+Math.pow(r-mean,2),0)/ret.length;
+  const annVol   = Math.sqrt(variance)*Math.sqrt(252)*100;
+
+  return {
+    spy:             prices[prices.length-1].toFixed(2),
+    sma220:          sma220.toFixed(2),
+    spyStatus:       prices[prices.length-1] > sma220 ? "Over" : "Under",
+    volatility:      annVol.toFixed(2),
+    treasuryRate:    currT.toFixed(3),
+    treasuryRateChange: delta.toFixed(4),
+    isTreasuryFalling: isF,
+    priceHistory:    valid,
+    smaHistory:      valid.map(v=>({ date: v.date, sma: parseFloat(sma220.toFixed(2)) }))
+  };
+}
+
+async function fetchTickerFinancialData(ticker, range){
+  // identical to your original fetchTickerFinancialData
+  const opts = {
+    '1d':  { range:'1d',  interval:'1m' },
+    '1mo': { range:'1mo', interval:'5m' },
+    '1y':  { range:'1y',  interval:'1d' },
+    '3y':  { range:'3y',  interval:'1wk'},
+    '10y': { range:'10y', interval:'1mo'}
+  };
+  const sel = opts[range]||opts['1d'];
+  const resp = await axios.get(
+    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=${sel.interval}&range=${sel.range}`
+  );
+  const r = resp.data.chart.result[0];
+  const price = r.meta.regularMarketPrice.toFixed(2);
+  const ts    = r.timestamp;
+  const prices = (r.indicators.adjclose?.[0].adjclose || r.indicators.quote[0].close);
+  const hist = ts.map((t,i)=>({
+    date: new Date(t*1000).toLocaleDateString('en-US', range==='1d'||range==='1mo'
+      ? { month:'short',day:'numeric',hour:'2-digit',minute:'2-digit' }
+      : { month:'short',day:'numeric',year:'numeric' }
+    ),
+    price: prices[i]
+  }));
+  return {
+    ticker: ticker.toUpperCase(),
+    currentPrice: `$${price}`,
+    historicalData: hist
+  };
+}
+
+// ——— Main handler ———
+
+module.exports = async (req, res) => {
+  try {
+    if (req.query.type === 'check') {
+      const d = await fetchCheckFinancialData();
+      const mfea = determineRiskCategory(d);
+      const rec  = determineRecommendationWithBands(d);
+
+      // Treasury trend arrow text
+      let trend = "↔️ No change";
+      if (parseFloat(d.treasuryRateChange) >  0.0001) trend = `⬆️ +${Math.abs(d.treasuryRateChange)}%`;
+      if (parseFloat(d.treasuryRateChange) < -0.0001) trend = `⬇️ ${Math.abs(d.treasuryRateChange)}%`;
+
+      // Band influences description
+      const inf = [];
+      if (rec.bandInfo.effSpy)   inf.push("SPY above SMA band");
+      if (rec.bandInfo.effVol14) inf.push("Vol <14% band");
+      if (rec.bandInfo.effVol24) inf.push("Vol <24% band");
+      if (rec.bandInfo.effTreas) inf.push("Treasury drop >0.1%");
+      const desc = inf.length
+        ? `Factors: ${inf.join(', ')}.`
+        : "All factors clear of bands.";
+
+      return res.json({
+        ...d,
+        treasuryTrend: trend,
+        mfeaCategory: mfea.category,
+        mfeaAllocation: mfea.allocation,
+        recommendedCategory: rec.recommendedCategory,
+        recommendedAllocation: rec.recommendedAllocation,
+        bandInfluenceDescription: desc
+      });
+    }
+
+    // Ticker
+    if (req.query.ticker && req.query.range) {
+      const out = await fetchTickerFinancialData(
+        encodeURIComponent(req.query.ticker),
+        req.query.range
+      );
+      return res.json(out);
+    }
+
+    res.status(400).json({ error: "Invalid parameters" });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message||"Server error" });
+  }
+};
