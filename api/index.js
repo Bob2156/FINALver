@@ -1,19 +1,22 @@
 "use strict";
 
-const {
-  InteractionType,
+const { 
   InteractionResponseType,
+  InteractionType,
   verifyKey,
 } = require("discord-interactions");
-const axios = require("axios");
 const getRawBody = require("raw-body");
+const axios = require("axios");
 
-//-----------------------------//
-//      Constants & Commands   //
-//-----------------------------//
+//========================//
+//     Command Config     //
+//========================//
 
 // /hi
-const HI_COMMAND = { name: "hi", description: "Say hello!" };
+const HI_COMMAND = {
+  name: "hi",
+  description: "Say hello!",
+};
 
 // /check
 const CHECK_COMMAND = {
@@ -29,13 +32,13 @@ const TICKER_COMMAND = {
     {
       name: "symbol",
       type: 3, // STRING
-      description: "Stock ticker symbol (e.g., AAPL, GOOGL, NVDA)",
+      description: "The stock ticker symbol (e.g., AAPL, GOOGL)",
       required: true,
     },
     {
       name: "timeframe",
       type: 3, // STRING
-      description: "Timeframe (1d, 1mo, 1y, 3y, 10y)",
+      description: "The timeframe (1d, 1mo, 1y, 3y, 10y)",
       required: true,
       choices: [
         { name: "1 Day", value: "1d" },
@@ -48,25 +51,33 @@ const TICKER_COMMAND = {
   ],
 };
 
-function logDebug(msg) {
-  console.log(`[DEBUG] ${msg}`);
+//========================//
+//    Utility Logging     //
+//========================//
+function logDebug(message) {
+  console.log(`[DEBUG] ${message}`);
 }
 
-//-----------------------------//
-//   1) MFEA “Strict” Logic    //
-//-----------------------------//
+//============================================================//
+// 1. Strict MFEA Calculation (unchanged from original logic) //
+//============================================================//
 function determineRiskCategory(data) {
+  // data => { spy, sma220, volatility, isTreasuryFalling, ... }
   const spyValue = parseFloat(data.spy);
-  const smaValue = parseFloat(data.sma220);
-  const volValue = parseFloat(data.volatility);
+  const sma220Value = parseFloat(data.sma220);
+  const volatilityValue = parseFloat(data.volatility);
 
-  if (spyValue > smaValue) {
-    if (volValue < 14) {
+  logDebug(
+    `determineRiskCategory => SPY=${spyValue}, SMA220=${sma220Value}, Vol=${volatilityValue}, isTreasuryFalling=${data.isTreasuryFalling}`
+  );
+
+  if (spyValue > sma220Value) {
+    if (volatilityValue < 14) {
       return {
         category: "Risk On",
-        allocation: "100% UPRO (3× S&P 500) or 3×(100% SPY)",
+        allocation: "100% UPRO (3× leveraged S&P 500) or 3×(100% SPY)",
       };
-    } else if (volValue < 24) {
+    } else if (volatilityValue < 24) {
       return {
         category: "Risk Mid",
         allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)",
@@ -76,156 +87,199 @@ function determineRiskCategory(data) {
         return {
           category: "Risk Alt",
           allocation:
-            "25% UPRO + 75% ZROZ or 1.5×(50% SPY + 50% ZROZ)",
+            "25% UPRO + 75% ZROZ (long-duration zero-coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
         };
       } else {
         return {
           category: "Risk Off",
-          allocation: "100% SPY",
+          allocation: "100% SPY or 1×(100% SPY)",
         };
       }
     }
   } else {
-    // spyValue <= smaValue
+    // SPY <= SMA
     if (data.isTreasuryFalling) {
       return {
         category: "Risk Alt",
         allocation:
-          "25% UPRO + 75% ZROZ or 1.5×(50% SPY + 50% ZROZ)",
+          "25% UPRO + 75% ZROZ (long-duration zero-coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
       };
     } else {
       return {
         category: "Risk Off",
-        allocation: "100% SPY",
+        allocation: "100% SPY or 1×(100% SPY)",
       };
     }
   }
 }
 
-//-----------------------------//
-//   2) Shared Decision Tree   //
-//-----------------------------//
-function calculateAllocationLogic(isAbove, isVolBelow14, isVolBelow24, isTreasuryFalling) {
-  if (isAbove) {
+//==================================================//
+// 2. Reusable Decision Tree for MFEA & Bands Logic //
+//==================================================//
+function calculateAllocationLogic(isSpyAboveSma, isVolBelow14, isVolBelow24, isTreasuryFalling) {
+  // same as original
+  if (isSpyAboveSma) {
     if (isVolBelow14) {
-      return { category: "Risk On", allocation: "100% UPRO (3×) or 3× SPY" };
+      return {
+        category: "Risk On",
+        allocation: "100% UPRO (3× leveraged S&P 500) or 3×(100% SPY)",
+      };
     } else if (isVolBelow24) {
-      return { category: "Risk Mid", allocation: "100% SSO (2×) or 2× SPY" };
+      return {
+        category: "Risk Mid",
+        allocation: "100% SSO (2× S&P 500) or 2×(100% SPY)",
+      };
     } else {
-      return isTreasuryFalling
-        ? {
-            category: "Risk Alt",
-            allocation: "25% UPRO + 75% ZROZ or 1.5×(50% SPY + 50% ZROZ)",
-          }
-        : { category: "Risk Off", allocation: "100% SPY" };
+      if (isTreasuryFalling) {
+        return {
+          category: "Risk Alt",
+          allocation:
+            "25% UPRO + 75% ZROZ (long-duration zero-coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
+        };
+      } else {
+        return {
+          category: "Risk Off",
+          allocation: "100% SPY or 1×(100% SPY)",
+        };
+      }
     }
   } else {
-    // not above
-    return isTreasuryFalling
-      ? {
-          category: "Risk Alt",
-          allocation: "25% UPRO + 75% ZROZ or 1.5×(50% SPY + 50% ZROZ)",
-        }
-      : { category: "Risk Off", allocation: "100% SPY" };
+    // SPY <= SMA
+    if (isTreasuryFalling) {
+      return {
+        category: "Risk Alt",
+        allocation:
+          "25% UPRO + 75% ZROZ (long-duration zero-coupon bonds) or 1.5×(50% SPY + 50% ZROZ)",
+      };
+    } else {
+      return {
+        category: "Risk Off",
+        allocation: "100% SPY or 1×(100% SPY)",
+      };
+    }
   }
 }
 
-//-----------------------------//
-// 3) Recommendation w/ Bands //
-//-----------------------------//
+//=================================================================//
+// 3. Banded Recommendation (unchanged from earlier explanation)   //
+//=================================================================//
 function determineRecommendationWithBands(data) {
-  const spyVal = parseFloat(data.spy);
-  const smaVal = parseFloat(data.sma220);
-  const volVal = parseFloat(data.volatility);
-  const treasChg = parseFloat(data.treasuryRateChange);
+  // data => { spy, sma220, volatility, treasuryRateChange, ... }
+  const spy = parseFloat(data.spy);
+  const sma220 = parseFloat(data.sma220);
+  const volatility = parseFloat(data.volatility);
+  const treasuryChange = parseFloat(data.treasuryRateChange);
 
-  const isSpyAboveSmaStrict = spyVal > smaVal;
-  const isVolBelow14Strict = volVal < 14;
-  const isVolBelow24Strict = volVal < 24;
+  // Strict states
+  const isSpyAboveSmaMFEA = spy > sma220;
+  const isVolBelow14MFEA = volatility < 14;
+  const isVolBelow24MFEA = volatility < 24;
 
-  // bands
-  const smaBandPct = 0.02;
-  const volBandAbs = 1;
-  const treasThreshold = -0.001;
+  // Banded thresholds
+  const smaBandPercent = 0.02; // ±2%
+  const volBandAbsolute = 1.0; // ±1%
+  const treasuryRecThreshold = -0.001; // -0.1%
 
-  const smaLower = smaVal * (1 - smaBandPct);
-  const smaUpper = smaVal * (1 + smaBandPct);
-  const vol14Lower = 14 - volBandAbs;
-  const vol14Upper = 14 + volBandAbs;
-  const vol24Lower = 24 - volBandAbs;
-  const vol24Upper = 24 + volBandAbs;
+  const smaLowerBand = sma220 * (1 - smaBandPercent);
+  const smaUpperBand = sma220 * (1 + smaBandPercent);
+  const vol14LowerBand = 14 - volBandAbsolute;
+  const vol14UpperBand = 14 + volBandAbsolute;
+  const vol24LowerBand = 24 - volBandAbsolute;
+  const vol24UpperBand = 24 + volBandAbsolute;
 
-  const isSpyAboveSmaRec =
-    spyVal > smaUpper ? true : spyVal < smaLower ? false : isSpyAboveSmaStrict;
-  const isVolBelow14Rec =
-    volVal < vol14Lower ? true : volVal > vol14Upper ? false : isVolBelow14Strict;
-  const isVolBelow24Rec =
-    volVal < vol24Lower ? true : volVal > vol24Upper ? false : isVolBelow24Strict;
+  // Determine “effective” states
+  let isSpyEffectivelyAboveSmaRec =
+    spy > smaUpperBand ? true : spy < smaLowerBand ? false : isSpyAboveSmaMFEA;
+  let isVolEffectivelyBelow14Rec =
+    volatility < vol14LowerBand
+      ? true
+      : volatility > vol14UpperBand
+      ? false
+      : isVolBelow14MFEA;
+  let isVolEffectivelyBelow24Rec =
+    volatility < vol24LowerBand
+      ? true
+      : volatility > vol24UpperBand
+      ? false
+      : isVolBelow24MFEA;
 
-  const isTreasuryFallingRec = treasChg < treasThreshold;
+  const isTreasuryFallingRec = treasuryChange < treasuryRecThreshold;
 
-  const recommended = calculateAllocationLogic(
-    isSpyAboveSmaRec,
-    isVolBelow14Rec,
-    isVolBelow24Rec,
+  // Final recommended logic
+  const recommendedResult = calculateAllocationLogic(
+    isSpyEffectivelyAboveSmaRec,
+    isVolEffectivelyBelow14Rec,
+    isVolEffectivelyBelow24Rec,
     isTreasuryFallingRec
   );
 
+  // Return plus “bandInfo” if needed
   return {
-    recommendedCategory: recommended.category,
-    recommendedAllocation: recommended.allocation,
+    recommendedCategory: recommendedResult.category,
+    recommendedAllocation: recommendedResult.allocation,
     bandInfo: {
-      spyVal,
-      smaVal,
-      volVal,
-      treasChg,
+      isSpyInSmaBand: spy >= smaLowerBand && spy <= smaUpperBand,
+      isVolIn14Band:
+        volatility >= vol14LowerBand && volatility <= vol14UpperBand,
+      isVolIn24Band:
+        volatility >= vol24LowerBand && volatility <= vol24UpperBand,
+      trsChange: treasuryChange,
+      trsRecThreshold: treasuryRecThreshold,
     },
   };
 }
 
-//-----------------------------//
-//  4) Data Fetch: /check      //
-//-----------------------------//
+//=====================================================//
+// 4. Data Fetch for /check: SPY, Treasury, Vol, etc.  //
+//=====================================================//
 async function fetchCheckFinancialData() {
-  // We do the 3 axios calls:
-  const [spySMAResp, treasuryResp, spyVolResp] = await Promise.all([
+  // 3 parallel calls
+  const [spyResp, treasuryResp, volResp] = await Promise.all([
     axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=220d"),
     axios.get("https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?interval=1d&range=50d"),
     axios.get("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=40d"),
   ]);
 
-  // SPY + 220d SMA
-  const spyData = spySMAResp.data.chart.result[0];
+  // --- SPY Price & 220-day SMA
+  const spyData = spyResp.data.chart.result[0];
   const spyPrice = spyData.meta.regularMarketPrice;
-  const spyAdj = spyData.indicators.adjclose[0].adjclose;
-  const validSpy = spyAdj.slice(-220).filter((x) => typeof x === "number" && x > 0);
-  const sma220 = validSpy.reduce((acc, n) => acc + n, 0) / validSpy.length;
+  const adjClose = spyData.indicators.adjclose[0].adjclose;
+  if (!adjClose || adjClose.length < 220) {
+    throw new Error("Not enough data for 220-day SMA");
+  }
+  const last220 = adjClose.slice(-220).filter((p) => typeof p === "number" && p > 0);
+  const sma220 = last220.reduce((acc, val) => acc + val, 0) / last220.length;
   const spyStatus = spyPrice > sma220 ? "Over" : "Under";
 
-  // Treasury
+  // --- Treasury
   const tData = treasuryResp.data.chart.result[0];
   const tRates = tData.indicators.quote[0].close;
   const tTimes = tData.timestamp;
-  const validTs = tTimes
+  const validT = tTimes
     .map((ts, i) => ({ ts, rate: tRates[i] }))
-    .filter((r) => r.ts && typeof r.rate === "number")
+    .filter((x) => x.ts && typeof x.rate === "number")
     .sort((a, b) => a.ts - b.ts);
-  const lastIndex = validTs.length - 1;
-  const currentTR = validTs[lastIndex].rate;
-  const monthAgoTR = validTs[lastIndex - 21].rate; // 21 trading days
+  if (validT.length < 22) throw new Error("Not enough Treasury points");
+  const lastIndex = validT.length - 1;
+  const currentTR = validT[lastIndex].rate;
+  const monthAgoTR = validT[lastIndex - 21].rate;
   const treasuryRateChange = currentTR - monthAgoTR;
   const isTreasuryFalling = treasuryRateChange < -0.0001;
 
-  // SPY vol
-  const volData = spyVolResp.data.chart.result[0];
-  const volPrices = volData.indicators.adjclose[0].adjclose.filter((p) => typeof p === "number");
-  const recent22 = volPrices.slice(-22);
-  const returns = recent22.slice(1).map((price, i) => {
-    const prev = recent22[i];
-    return prev !== 0 ? price / prev - 1 : 0;
+  // --- Vol (21 daily returns)
+  const volData = volResp.data.chart.result[0];
+  const volPrices = volData.indicators.adjclose[0].adjclose.filter(
+    (p) => typeof p === "number"
+  );
+  if (volPrices.length < 22) throw new Error("Not enough data for volatility");
+  const last22 = volPrices.slice(-22);
+  const dailyReturns = last22.slice(1).map((price, idx) => {
+    const prev = last22[idx];
+    return prev === 0 ? 0 : price / prev - 1;
   });
-  const mean = returns.reduce((acc, r) => acc + r, 0) / returns.length;
-  const variance = returns.reduce((acc, r) => acc + (r - mean) ** 2, 0) / returns.length;
+  const meanRet = dailyReturns.reduce((acc, r) => acc + r, 0) / dailyReturns.length;
+  const variance =
+    dailyReturns.reduce((acc, r) => acc + (r - meanRet) ** 2, 0) / dailyReturns.length;
   const dailyVol = Math.sqrt(variance);
   const annualVol = dailyVol * Math.sqrt(252) * 100;
 
@@ -240,129 +294,139 @@ async function fetchCheckFinancialData() {
   };
 }
 
-//-----------------------------//
-//  5) Data Fetch: /ticker     //
-//-----------------------------//
+//==================================================//
+// 5. Data Fetch for /ticker: Historical Price Data //
+//==================================================//
 async function fetchTickerFinancialData(symbol, timeframe) {
-  const rangeOptions = {
+  const rangeMap = {
     "1d": { range: "1d", interval: "1m" },
     "1mo": { range: "1mo", interval: "5m" },
     "1y": { range: "1y", interval: "1d" },
     "3y": { range: "3y", interval: "1wk" },
     "10y": { range: "10y", interval: "1mo" },
   };
-  const chosen = rangeOptions[timeframe] || rangeOptions["1d"];
+  const chosen = rangeMap[timeframe] || rangeMap["1d"];
   const { range, interval } = chosen;
 
-  const resp = await axios.get(
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
-      symbol
-    )}?interval=${interval}&range=${range}`
-  );
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+    symbol
+  )}?interval=${interval}&range=${range}`;
+
+  const resp = await axios.get(url);
   const d = resp.data;
-  if (!d.chart.result || !d.chart.result[0].meta?.regularMarketPrice) {
+  if (!d.chart.result || d.chart.result.length === 0) {
     if (d.chart.error?.description) throw new Error(d.chart.error.description);
-    throw new Error("Invalid ticker or data unavailable.");
+    throw new Error("Invalid ticker or data not available");
   }
 
   const meta = d.chart.result[0].meta;
-  const price = parseFloat(meta.regularMarketPrice).toFixed(2);
+  const priceNow = parseFloat(meta.regularMarketPrice).toFixed(2);
 
-  const timestamps = d.chart.result[0].timestamp;
-  let rawPrices = [];
+  let timeStamps = d.chart.result[0].timestamp;
+  let rawPrices;
   if (d.chart.result[0].indicators?.adjclose?.[0]?.adjclose) {
     rawPrices = d.chart.result[0].indicators.adjclose[0].adjclose;
   } else if (d.chart.result[0].indicators?.quote?.[0]?.close) {
     rawPrices = d.chart.result[0].indicators.quote[0].close;
   } else {
-    throw new Error("No prices found.");
+    throw new Error("No valid price data found");
   }
 
-  const valid = timestamps
+  if (!timeStamps || !rawPrices || timeStamps.length !== rawPrices.length) {
+    throw new Error("Incomplete historical data");
+  }
+
+  // Build array
+  const validEntries = timeStamps
     .map((ts, i) => ({ ts, price: rawPrices[i] }))
     .filter((x) => x.ts && typeof x.price === "number");
-  // Format into date
-  const finalRange = timeframe.toUpperCase();
 
-  let historicalData = valid.map((entry) => {
-    const dateObj = new Date(entry.ts * 1000);
-    // For simpler code, just pick a date format
+  // Convert to date strings
+  let historicalData = validEntries.map((entry) => {
+    const dt = new Date(entry.ts * 1000);
     if (timeframe === "1d") {
       return {
-        date: dateObj.toLocaleTimeString("en-US", {
-          timeZone: "America/New_York",
+        date: dt.toLocaleTimeString("en-US", {
           hour12: true,
           hour: "2-digit",
           minute: "2-digit",
+          timeZone: "America/New_York",
         }),
         price: entry.price.toFixed(2),
       };
     } else if (timeframe === "1mo") {
       return {
-        date: dateObj.toLocaleString("en-US", {
-          timeZone: "America/New_York",
+        date: dt.toLocaleString("en-US", {
           month: "short",
           day: "2-digit",
           hour: "2-digit",
           minute: "2-digit",
           hour12: true,
+          timeZone: "America/New_York",
         }),
         price: entry.price.toFixed(2),
       };
     } else {
+      // 1y, 3y, 10y
       return {
-        date: dateObj.toLocaleDateString("en-US", {
-          timeZone: "America/New_York",
+        date: dt.toLocaleDateString("en-US", {
           month: "short",
           day: "2-digit",
           year: "numeric",
+          timeZone: "America/New_York",
         }),
         price: entry.price.toFixed(2),
       };
     }
   });
 
-  // For 10y, aggregate monthly
+  // For 10y → monthly average
   if (timeframe === "10y") {
-    // do monthly aggregation
     const monthlyMap = {};
-    valid.forEach((x) => {
-      const dt = new Date(x.ts * 1000);
+    validEntries.forEach((v) => {
+      const dt = new Date(v.ts * 1000);
       const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
       if (!monthlyMap[key]) {
-        monthlyMap[key] = { sum: 0, count: 0, label: dt.toLocaleDateString("en-US", {
-          month: "short",
-          year: "numeric",
-        }) };
+        monthlyMap[key] = {
+          sum: 0,
+          count: 0,
+          label: dt.toLocaleDateString("en-US", {
+            month: "short",
+            year: "numeric",
+            timeZone: "America/New_York",
+          }),
+        };
       }
-      monthlyMap[key].sum += x.price;
-      monthlyMap[key].count++;
+      monthlyMap[key].sum += v.price;
+      monthlyMap[key].count += 1;
     });
     historicalData = Object.keys(monthlyMap)
       .sort()
       .map((k) => {
-        const avgPrice = monthlyMap[k].sum / monthlyMap[k].count;
-        return { date: monthlyMap[k].label, price: avgPrice.toFixed(2) };
+        const avg = monthlyMap[k].sum / monthlyMap[k].count;
+        return {
+          date: monthlyMap[k].label,
+          price: avg.toFixed(2),
+        };
       });
   }
 
   return {
     ticker: symbol.toUpperCase(),
-    currentPrice: `$${price}`,
+    currentPrice: `$${priceNow}`,
     historicalData,
-    selectedRange: finalRange,
+    selectedRange: timeframe.toUpperCase(),
   };
 }
 
-//-----------------------------//
-//        DISCORD HANDLER      //
-//-----------------------------//
+//=================================================//
+// 6. The Main Handler (with Deferred Responses)   //
+//=================================================//
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
-  // Validate signature
   const signature = req.headers["x-signature-ed25519"];
   const timestamp = req.headers["x-signature-timestamp"];
   if (!signature || !timestamp) {
@@ -372,15 +436,15 @@ module.exports = async (req, res) => {
   let rawBody;
   try {
     rawBody = await getRawBody(req, { encoding: "utf-8" });
-  } catch (err) {
+  } catch (error) {
     return res.status(400).json({ error: "Invalid request body" });
   }
 
   let message;
   try {
     message = JSON.parse(rawBody);
-  } catch (err) {
-    return res.status(400).json({ error: "Invalid JSON" });
+  } catch (error) {
+    return res.status(400).json({ error: "Invalid JSON format" });
   }
 
   if (!process.env.PUBLIC_KEY) {
@@ -388,134 +452,189 @@ module.exports = async (req, res) => {
     return res.status(500).json({ error: "Server config error" });
   }
 
-  const valid = verifyKey(rawBody, signature, timestamp, process.env.PUBLIC_KEY);
-  if (!valid) {
-    console.error("Bad request signature");
+  // Validate request
+  const isValid = verifyKey(rawBody, signature, timestamp, process.env.PUBLIC_KEY);
+  if (!isValid) {
+    console.error("Invalid request signature");
     return res.status(401).json({ error: "Bad request signature" });
   }
 
-  // Discord interaction
+  // Handle interactions
   if (message.type === InteractionType.PING) {
-    // Immediately respond
+    // Quick respond with Pong
     return res.status(200).json({ type: InteractionResponseType.PONG });
   }
 
-  // Handle slash commands
   if (message.type === InteractionType.APPLICATION_COMMAND) {
     const commandName = message.data.name.toLowerCase();
-    const { application_id, token } = message; // for follow-up
+    const { application_id, token } = message; // needed for follow-up
 
     switch (commandName) {
-      //------------------------------------
-      //  /hi — quick response, no deferral
-      //------------------------------------
+      //================
+      // /hi - immediate
+      //================
       case HI_COMMAND.name: {
         return res.status(200).json({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: "hii <3",
-          },
+          data: { content: "hii <3" },
         });
       }
 
-      //------------------------------------
-      //  /check or /ticker → DEFER first
-      //------------------------------------
+      //==================================
+      // /check & /ticker - DEFER & follow
+      //==================================
       case CHECK_COMMAND.name:
       case TICKER_COMMAND.name: {
-        // 1) Immediately defer so we don't time out
-        //    type 5 => DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+        // Step 1: Defer
         res.status(200).json({
           type: 5, // InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
           data: {
-            // You can set a preliminary "Working on it..." text if you want:
             content: "Fetching data…",
-            // flags: 64, // if you wanted ephemeral
           },
         });
 
-        // 2) Perform async logic AFTER sending the immediate response
-        ;(async () => {
+        // Step 2: Async logic after deferral
+        (async () => {
           try {
-            let finalContent;
+            let finalResponseBody = {};
+
             if (commandName === CHECK_COMMAND.name) {
-              // fetch MFEA data
+              // =========== /check logic ===============
               const financialData = await fetchCheckFinancialData();
 
-              // strict
-              const { category: mfeaCat, allocation: mfeaAlloc } =
+              // Strict MFEA
+              const { category: mfeaCategory, allocation: mfeaAllocation } =
                 determineRiskCategory(financialData);
 
-              // recommended
+              // Recommendation
               const {
                 recommendedCategory,
                 recommendedAllocation,
+                bandInfo,
               } = determineRecommendationWithBands(financialData);
 
-              // Some display strings
+              // Format treasury trend text
               const changeNum = parseFloat(financialData.treasuryRateChange);
-              let trsTrend = "↔️ No significant change";
+              let treasuryRateTrendValue = "↔️ No change since last 21 days";
               if (changeNum > 0.0001) {
-                trsTrend = `⬆️ +${Math.abs(changeNum).toFixed(3)}%`;
+                treasuryRateTrendValue = `⬆️ Increasing by ${Math.abs(changeNum).toFixed(
+                  3
+                )}% since last 21 days`;
               } else if (changeNum < -0.0001) {
-                trsTrend = `⬇️ -${Math.abs(changeNum).toFixed(3)}%`;
+                treasuryRateTrendValue = `⬇️ Decreasing by ${Math.abs(changeNum).toFixed(
+                  3
+                )}% since last 21 days`;
               }
 
-              finalContent = {
+              // Band influences
+              const mfeaDiffers =
+                mfeaAllocation !== recommendedAllocation;
+              let influences = [];
+              if (bandInfo.isSpyInSmaBand) influences.push("SPY within ±2% SMA");
+              if (bandInfo.isVolIn14Band) influences.push("Vol within 13–15%");
+              else if (bandInfo.isVolIn24Band) influences.push("Vol within 23–25%");
+              // Treasury?
+              const isTrInBand =
+                bandInfo.trsChange >= bandInfo.trsRecThreshold && bandInfo.trsChange < -0.0001;
+              if (isTrInBand) influences.push("Treasury in band range");
+
+              let bandInfluenceDescription = "";
+              if (!mfeaDiffers) {
+                if (influences.length > 0) {
+                  bandInfluenceDescription = `Factors within bands: ${influences.join("; ")}. Recommendation aligns.`;
+                } else {
+                  bandInfluenceDescription = "All factors outside bands. Recommendation aligns.";
+                }
+              } else {
+                bandInfluenceDescription = `Recommendation differs. Influences: ${influences.join("; ")}.`;
+              }
+              bandInfluenceDescription += "\n*Bands: ±2% SMA, ±1% Vol, <-0.1% Treas*";
+
+              // Build final embed
+              finalResponseBody = {
                 embeds: [
                   {
-                    title: "MFEA Analysis & Recommendation",
+                    title: "MFEA Analysis Status & Recommendation",
                     color: 3447003,
                     fields: [
-                      { name: "SPY Price", value: `$${financialData.spy}`, inline: true },
-                      { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
-                      { name: "SPY Status", value: financialData.spyStatus, inline: true },
+                      {
+                        name: "SPY Price",
+                        value: `$${financialData.spy}`,
+                        inline: true,
+                      },
+                      {
+                        name: "220-day SMA",
+                        value: `$${financialData.sma220}`,
+                        inline: true,
+                      },
+                      {
+                        name: "SPY Status",
+                        value: `${financialData.spyStatus} the 220-day SMA`,
+                        inline: true,
+                      },
                       {
                         name: "Volatility",
                         value: `${financialData.volatility}%`,
                         inline: true,
                       },
                       {
-                        name: "Treasury Rate",
+                        name: "3-Month Treasury Rate",
                         value: `${financialData.treasuryRate}%`,
                         inline: true,
                       },
-                      { name: "Treasury Trend", value: trsTrend, inline: true },
                       {
-                        name: "Strict MFEA",
-                        value: `Category: ${mfeaCat}\nAllocation: **${mfeaAlloc}**`,
+                        name: "Treasury Rate Trend",
+                        value: treasuryRateTrendValue,
+                        inline: true,
+                      },
+                      {
+                        name: "📊 MFEA Category",
+                        value: mfeaCategory,
                         inline: false,
                       },
                       {
-                        name: "Recommended",
-                        value: `Category: ${recommendedCategory}\nAllocation: **${recommendedAllocation}**`,
+                        name: "📈 MFEA Allocation",
+                        value: `**${mfeaAllocation}**`,
+                        inline: false,
+                      },
+                      {
+                        name: "💡 Recommended Allocation",
+                        value: `**${recommendedAllocation}**`,
+                        inline: false,
+                      },
+                      {
+                        name: "⚙️ Band Influence Analysis",
+                        value: bandInfluenceDescription,
                         inline: false,
                       },
                     ],
-                    timestamp: new Date().toISOString(),
                     footer: {
-                      text: "Strict vs. banded recommendation",
+                      text: "MFEA = Strict Model | Recommendation includes rebalancing bands",
                     },
+                    timestamp: new Date().toISOString(),
                   },
                 ],
               };
             } else {
-              // /ticker
-              const symbol = message.data.options.find((o) => o.name === "symbol")?.value;
-              const timeframe = message.data.options.find((o) => o.name === "timeframe")?.value;
-              const tickerData = await fetchTickerFinancialData(symbol, timeframe);
+              // =========== /ticker logic ===============
+              const symbolOpt = message.data.options.find((o) => o.name === "symbol");
+              const tfOpt = message.data.options.find((o) => o.name === "timeframe");
+              const symbol = symbolOpt ? symbolOpt.value : null;
+              const timeframe = tfOpt ? tfOpt.value : "1d";
 
-              // Create QuickChart
+              const tData = await fetchTickerFinancialData(symbol, timeframe);
+
+              // Build QuickChart
               const chartConfig = {
                 type: "line",
                 data: {
-                  labels: tickerData.historicalData.map((x) => x.date),
+                  labels: tData.historicalData.map((e) => e.date),
                   datasets: [
                     {
-                      label: `${tickerData.ticker} Price`,
-                      data: tickerData.historicalData.map((x) => x.price),
+                      label: `${tData.ticker} Price`,
+                      data: tData.historicalData.map((e) => e.price),
                       borderColor: "#0070f3",
-                      backgroundColor: "rgba(0, 112, 243, 0.1)",
+                      backgroundColor: "rgba(0,112,243,0.1)",
                       borderWidth: 2,
                       pointRadius: 0,
                       fill: true,
@@ -541,34 +660,43 @@ module.exports = async (req, res) => {
                 JSON.stringify(chartConfig)
               )}&w=600&h=400&bkg=%23ffffff`;
 
-              finalContent = {
+              finalResponseBody = {
                 embeds: [
                   {
-                    title: `${tickerData.ticker} Financial Data`,
+                    title: `${tData.ticker} Financial Data`,
                     color: 3447003,
                     fields: [
-                      { name: "Current Price", value: tickerData.currentPrice, inline: true },
-                      { name: "Timeframe", value: timeframe.toUpperCase(), inline: true },
+                      { name: "Current Price", value: tData.currentPrice, inline: true },
+                      {
+                        name: "Timeframe",
+                        value: timeframe.toUpperCase(),
+                        inline: true,
+                      },
                       {
                         name: "Selected Range",
-                        value: tickerData.selectedRange,
+                        value: tData.selectedRange,
                         inline: true,
                       },
                       { name: "Data Source", value: "Yahoo Finance", inline: true },
                     ],
                     image: { url: chartUrl },
-                    footer: { text: "Data from Yahoo Finance" },
+                    footer: { text: "Data fetched from Yahoo Finance" },
                     timestamp: new Date().toISOString(),
                   },
                 ],
               };
             }
 
-            // 3) Now PATCH the original deferred response
-            //    (requires BOT_TOKEN in environment)
+            // Step 3: PATCH the original deferred message
+            if (!process.env.BOT_TOKEN) {
+              console.error("BOT_TOKEN is missing. Cannot PATCH follow-up.");
+              // Optionally just log an error or do something else
+              return;
+            }
+
             await axios.patch(
               `https://discord.com/api/v10/webhooks/${application_id}/${token}/messages/@original`,
-              finalContent,
+              finalResponseBody,
               {
                 headers: {
                   "Content-Type": "application/json",
@@ -578,35 +706,36 @@ module.exports = async (req, res) => {
             );
           } catch (err) {
             console.error("Error after deferral:", err);
-            // Attempt to edit the original with an error message
-            await axios.patch(
-              `https://discord.com/api/v10/webhooks/${application_id}/${token}/messages/@original`,
-              {
-                content:
-                  "⚠️ Failed to fetch data. Please try again later or check the logs.",
-              },
-              {
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bot ${process.env.BOT_TOKEN}`,
+            // Attempt to update with an error message
+            if (process.env.BOT_TOKEN) {
+              await axios.patch(
+                `https://discord.com/api/v10/webhooks/${application_id}/${token}/messages/@original`,
+                {
+                  content: "⚠️ Failed to fetch data. Please try again.",
                 },
-              }
-            );
+                {
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bot ${process.env.BOT_TOKEN}`,
+                  },
+                }
+              );
+            }
           }
         })();
 
-        // We already responded with DEFERRED, so just end
+        // We’ve sent a DEFERRED response—stop here
         return;
       }
 
-      //------------------------------------
-      // Unknown
-      //------------------------------------
+      //================
+      // Unknown Command
+      //================
       default:
-        return res.status(400).json({ error: "Unknown command" });
+        return res.status(400).json({ error: "Unknown Command" });
     }
   } else {
-    // Not a command
-    return res.status(400).json({ error: "Unknown interaction type" });
+    // Not an APPLICATION_COMMAND
+    return res.status(400).json({ error: "Unknown Interaction Type" });
   }
 };
