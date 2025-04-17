@@ -1,3 +1,5 @@
+
+
 // index.js - Integrating MFEA vs Recommendation bands into the user's provided original code.
 "use strict";
 
@@ -45,7 +47,7 @@ const PRESET_IMAGE_URL = "https://th.bing.com/th/id/R.aeccf9d26746b036234619be80
 // Helper function to log debug messages (Unchanged from original)
 function logDebug(message) {
     // Corrected template literal syntax
-    console.log([DEBUG] ${message});
+    console.log(`[DEBUG] ${message}`);
 }
 
 // Helper function to determine risk category and allocation (Unchanged from original)
@@ -57,7 +59,7 @@ function determineRiskCategory(data) {
     const volatilityValue = parseFloat(data.volatility);
 
     // Uses the strict boolean flag 'isTreasuryFalling' from fetched data
-    logDebug(Determining risk category (Strict MFEA) with SPY: ${data.spy}, SMA220: ${data.sma220}, Volatility: ${data.volatility}%, Is Treasury Falling (Strict): ${data.isTreasuryFalling});
+    logDebug(`Determining risk category (Strict MFEA) with SPY: ${data.spy}, SMA220: ${data.sma220}, Volatility: ${data.volatility}%, Is Treasury Falling (Strict): ${data.isTreasuryFalling}`);
 
     if (spyValue > sma220Value) {
         if (volatilityValue < 14) {
@@ -159,7 +161,7 @@ function determineRecommendationWithBands(data) {
     // *** This comparison now uses the new treasuryRecThreshold (-0.001) ***
     const isTreasuryFallingRec = treasuryChange < treasuryRecThreshold;
 
-    logDebug(REC Checks: EffectiveSPY>SMA? ${isSpyEffectivelyAboveSmaRec} (Band ${smaLowerBand.toFixed(2)}-${smaUpperBand.toFixed(2)}), EffVol<14? ${isVolEffectivelyBelow14Rec} (Band ${vol14LowerBand}-${vol14UpperBand}), EffVol<24? ${isVolEffectivelyBelow24Rec} (Band ${vol24LowerBand}-${vol24UpperBand}), EffTrsFall? ${isTreasuryFallingRec} (Thresh ${treasuryRecThreshold}));
+    logDebug(`REC Checks: EffectiveSPY>SMA? ${isSpyEffectivelyAboveSmaRec} (Band ${smaLowerBand.toFixed(2)}-${smaUpperBand.toFixed(2)}), EffVol<14? ${isVolEffectivelyBelow14Rec} (Band ${vol14LowerBand}-${vol14UpperBand}), EffVol<24? ${isVolEffectivelyBelow24Rec} (Band ${vol24LowerBand}-${vol24UpperBand}), EffTrsFall? ${isTreasuryFallingRec} (Thresh ${treasuryRecThreshold})`);
 
     // Calculate Recommended Allocation using the effective band-aware states
     let recommendedResult = calculateAllocationLogic(
@@ -209,11 +211,11 @@ async function fetchCheckFinancialData() {
         const spyAdjClosePrices = spyData.chart.result[0].indicators.adjclose[0].adjclose;
         if (!spyAdjClosePrices || spyAdjClosePrices.length < 220) { throw new Error("Not enough data for 220-day SMA."); }
         const validSpyPrices = spyAdjClosePrices.slice(-220).filter(p => typeof p === 'number' && p !== null && p > 0);
-        if (validSpyPrices.length < 220) { logDebug(Warning: Only ${validSpyPrices.length} valid prices for SMA.); if(validSpyPrices.length === 0) throw new Error("No valid SPY prices for SMA.");}
+        if (validSpyPrices.length < 220) { logDebug(`Warning: Only ${validSpyPrices.length} valid prices for SMA.`); if(validSpyPrices.length === 0) throw new Error("No valid SPY prices for SMA.");}
         const sum220 = validSpyPrices.reduce((acc, price) => acc + price, 0);
         const sma220 = (sum220 / validSpyPrices.length);
         const spyStatus = spyPrice > sma220 ? "Over" : "Under";
-        logDebug(SPY Price: ${spyPrice}, SMA220: ${sma220.toFixed(2)}, Status: ${spyStatus});
+        logDebug(`SPY Price: ${spyPrice}, SMA220: ${sma220.toFixed(2)}, Status: ${spyStatus}`);
 
 
         // --- Treasury Data Processing (Unchanged from previous version) ---
@@ -225,7 +227,7 @@ async function fetchCheckFinancialData() {
             .map((ts, i) => ({ timestamp: ts, rate: treasuryRatesRaw[i] }))
             .filter(item => item.timestamp != null && typeof item.rate === 'number' && item.rate !== null)
             .sort((a, b) => a.timestamp - b.timestamp);
-        if (validTreasuryData.length < 22) { throw new Error(Not enough valid Treasury points (need 22, got ${validTreasuryData.length}).); }
+        if (validTreasuryData.length < 22) { throw new Error(`Not enough valid Treasury points (need 22, got ${validTreasuryData.length}).`); }
         const lastIndex = validTreasuryData.length - 1;
         const latestTreasuryEntry = validTreasuryData[lastIndex];
         const currentTreasuryRateValue = latestTreasuryEntry.rate;
@@ -234,7 +236,7 @@ async function fetchCheckFinancialData() {
         const oneMonthAgoTreasuryRateValue = oneMonthAgoEntry.rate;
         const treasuryRateChangeValue = currentTreasuryRateValue - oneMonthAgoTreasuryRateValue;
         const isTreasuryFallingStrict = treasuryRateChangeValue < -0.0001;
-        logDebug(Treasury Rate Change: ${treasuryRateChangeValue.toFixed(4)}, IsFalling (Strict): ${isTreasuryFallingStrict});
+        logDebug(`Treasury Rate Change: ${treasuryRateChangeValue.toFixed(4)}, IsFalling (Strict): ${isTreasuryFallingStrict}`);
 
 
         // --- Volatility Calculation (MODIFIED TO USE 21 RETURNS) ---
@@ -246,7 +248,7 @@ async function fetchCheckFinancialData() {
 
         // Need 22 prices for 21 returns
         if (validVolPrices.length < 22) {
-             throw new Error(Not enough valid data for 22-day prices (need 22, got ${validVolPrices.length}) for 21 returns.);
+             throw new Error(`Not enough valid data for 22-day prices (need 22, got ${validVolPrices.length}) for 21 returns.`);
         }
 
         // Use last 22 valid prices
@@ -260,7 +262,7 @@ async function fetchCheckFinancialData() {
 
         // Ensure we have 21 returns
         if (spyVolDailyReturns.length !== 21) {
-            throw new Error(Incorrect number of returns for vol calc (expected 21, got ${spyVolDailyReturns.length}));
+            throw new Error(`Incorrect number of returns for vol calc (expected 21, got ${spyVolDailyReturns.length})`);
         }
 
         // Use the 21 returns
@@ -269,7 +271,7 @@ async function fetchCheckFinancialData() {
         const variance = recentReturns.reduce((acc, r) => acc + Math.pow(r - meanReturn, 2), 0) / recentReturns.length;
         const dailyVolatility = Math.sqrt(variance);
         const annualizedVolatility = (dailyVolatility * Math.sqrt(252) * 100);
-        logDebug(Calculated Annualized Volatility (21 returns): ${annualizedVolatility.toFixed(2)}%);
+        logDebug(`Calculated Annualized Volatility (21 returns): ${annualizedVolatility.toFixed(2)}%`);
 
         // --- Return results (INCLUDE BOTH isTreasuryFalling and treasuryRateChange) ---
         return {
@@ -308,7 +310,7 @@ async function fetchTickerFinancialData(ticker, range) {
         const { range: yahooRange, interval } = rangeOptions[selectedRange];
 
         const tickerResponse = await axios.get(
-            https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${yahooRange}
+            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${yahooRange}`
         );
         const tickerData = tickerResponse.data;
 
@@ -320,7 +322,7 @@ async function fetchTickerFinancialData(ticker, range) {
         ) {
             // Add check for Yahoo error message
             if (tickerData.chart?.error?.description) {
-                throw new Error(Yahoo Finance error: ${tickerData.chart.error.description});
+                throw new Error(`Yahoo Finance error: ${tickerData.chart.error.description}`);
             }
             throw new Error("Invalid ticker symbol or data unavailable.");
         }
@@ -369,12 +371,12 @@ async function fetchTickerFinancialData(ticker, range) {
         // Original 10y aggregation logic (using validHistoricalEntries for reliable timestamps)
         let aggregatedData = historicalData;
         if (selectedRange === '10y' && validHistoricalEntries.length > 0) {
-            logDebug(Aggregating 10y data for ${ticker}...);
+            logDebug(`Aggregating 10y data for ${ticker}...`);
             const monthlyMap = {};
             validHistoricalEntries.forEach(entry => {
                 const dateObj = new Date(entry.timestamp * 1000);
                 if (dateObj && !isNaN(dateObj.getTime())) {
-                    const monthKey = ${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')};
+                    const monthKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
                     if (!monthlyMap[monthKey]) {
                         const monthLabel = dateObj.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'America/New_York' });
                         monthlyMap[monthKey] = { sum: 0, count: 0, label: monthLabel };
@@ -388,13 +390,13 @@ async function fetchTickerFinancialData(ticker, range) {
                 // Return with formatted price string for chart consistency
                 return { date: monthlyMap[monthKey].label, price: parseFloat(avgPrice).toFixed(2) };
             });
-             logDebug(Aggregated into ${aggregatedData.length} points.);
+             logDebug(`Aggregated into ${aggregatedData.length} points.`);
         }
 
         // Original return structure (ensure prices are strings for the chart function as expected by original code)
         return {
             ticker: ticker.toUpperCase(),
-            currentPrice: $${currentPrice},
+            currentPrice: `$${currentPrice}`,
             // Convert price to string for chart data array if original chart function expected it
             historicalData: aggregatedData.map(d => ({...d, price: String(d.price)})),
             selectedRange: selectedRange.toUpperCase(), // Return actual range used
@@ -429,7 +431,7 @@ module.exports = async (req, res) => {
     // --- End Validation ---
 
 
-    logDebug(Message type: ${message.type});
+    logDebug(`Message type: ${message.type}`);
 
     // --- PING Handler (Original) ---
     if (message.type === InteractionType.PING) {
@@ -477,11 +479,11 @@ module.exports = async (req, res) => {
 
                     // Format based on original examples
                     if (changeNum > 0.0001) {
-                        treasuryRateTrendValue = ⬆️ Increasing by ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe};
+                        treasuryRateTrendValue = `⬆️ Increasing by ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe}`;
                     } else if (changeNum < -0.0001) { // This corresponds to financialData.isTreasuryFalling === true
-                        treasuryRateTrendValue = ⬇️ ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe}; // EXACT format
+                        treasuryRateTrendValue = `⬇️ ${Math.abs(changeNum).toFixed(3)}% since ${treasuryRateTimeframe}`; // EXACT format
                     } else {
-                        treasuryRateTrendValue = ↔️ No change since ${treasuryRateTimeframe}; // EXACT format
+                        treasuryRateTrendValue = `↔️ No change since ${treasuryRateTimeframe}`; // EXACT format
                     }
                     // --- End Treasury Trend Display ---
 
@@ -490,22 +492,22 @@ module.exports = async (req, res) => {
                     const influences = [];
                     let recommendationDiffers = mfeaAllocation !== recommendedAllocation;
                     // Logic using updated bandInfo from determineRecommendationWithBands
-                    if (bandInfo.isSpyInSmaBand) influences.push(SPY within ±2% SMA); // Updated text
-                    if (bandInfo.isVolIn14Band) influences.push(Vol within 13-15%); // (±1% band)
-                    else if (bandInfo.isVolIn24Band) influences.push(Vol within 23-25%); // (±1% band)
-                    if (bandInfo.isTreasuryInBand) influences.push(Treasury change between Rec(-0.1%)/MFEA thresholds); // Updated text
+                    if (bandInfo.isSpyInSmaBand) influences.push(`SPY within ±2% SMA`); // Updated text
+                    if (bandInfo.isVolIn14Band) influences.push(`Vol within 13-15%`); // (±1% band)
+                    else if (bandInfo.isVolIn24Band) influences.push(`Vol within 23-25%`); // (±1% band)
+                    if (bandInfo.isTreasuryInBand) influences.push(`Treasury change between Rec(-0.1%)/MFEA thresholds`); // Updated text
                     else if (recommendationDiffers && !bandInfo.isSpyInSmaBand && !bandInfo.isVolIn14Band && !bandInfo.isVolIn24Band && bandInfo.trsChange < bandInfo.trsRecThreshold) {
                          // Use bandInfo.trsRecThreshold which is now -0.001
-                        influences.push(Treasury change crossed Rec. threshold (<-0.1%)); // Updated text
+                        influences.push(`Treasury change crossed Rec. threshold (<-0.1%)`); // Updated text
                     }
                     // Format the description string
                     if (!recommendationDiffers) {
-                        bandInfluenceDescription = (influences.length > 0) ? Factors within bands: ${influences.join('; ')}. Recommendation aligns. : All factors clear of bands. Recommendation aligns.;
+                        bandInfluenceDescription = (influences.length > 0) ? `Factors within bands: ${influences.join('; ')}. Recommendation aligns.` : `All factors clear of bands. Recommendation aligns.`;
                     } else {
-                        bandInfluenceDescription = Recommendation differs. Influences: ${influences.join('; ')}.;
+                        bandInfluenceDescription = `Recommendation differs. Influences: ${influences.join('; ')}.`;
                     }
                      // *** CHANGED: Updated band description text ***
-                    bandInfluenceDescription += \n*Bands: ±2% SMA, ±1% Vol, <-0.1% Treas*;
+                    bandInfluenceDescription += `\n*Bands: ±2% SMA, ±1% Vol, <-0.1% Treas*`;
                     // --- End Band Description ---
 
                     // --- Construct and Send Embed ---
@@ -519,19 +521,19 @@ module.exports = async (req, res) => {
                                     color: 3447003, // Blue
                                     fields: [
                                         // Original Data Fields (in original order)
-                                        { name: "SPY Price", value: $${financialData.spy}, inline: true },
-                                        { name: "220-day SMA", value: $${financialData.sma220}, inline: true },
-                                        { name: "SPY Status", value: ${financialData.spyStatus} the 220-day SMA, inline: true },
-                                        { name: "Volatility", value: ${financialData.volatility}%, inline: true }, // Reflects 21-return calculation
-                                        { name: "3-Month Treasury Rate", value: ${financialData.treasuryRate}%, inline: true },
+                                        { name: "SPY Price", value: `$${financialData.spy}`, inline: true },
+                                        { name: "220-day SMA", value: `$${financialData.sma220}`, inline: true },
+                                        { name: "SPY Status", value: `${financialData.spyStatus} the 220-day SMA`, inline: true },
+                                        { name: "Volatility", value: `${financialData.volatility}%`, inline: true }, // Reflects 21-return calculation
+                                        { name: "3-Month Treasury Rate", value: `${financialData.treasuryRate}%`, inline: true },
                                         { name: "Treasury Rate Trend", value: treasuryRateTrendValue, inline: true }, // Using new formatted value
 
                                         // MFEA Strict Result (using original field names slightly modified)
                                         { name: "📊 MFEA Category", value: mfeaCategory, inline: false }, // Changed label
-                                        { name: "📈 MFEA Allocation", value: **${mfeaAllocation}**, inline: false }, // Changed label
+                                        { name: "📈 MFEA Allocation", value: `**${mfeaAllocation}**`, inline: false }, // Changed label
 
                                         // Recommendation Result
-                                        { name: "💡 Recommended Allocation", value: **${recommendedAllocation}**, inline: false }, // New field
+                                        { name: "💡 Recommended Allocation", value: `**${recommendedAllocation}**`, inline: false }, // New field
 
                                         // Band Analysis
                                         { name: "⚙️ Band Influence Analysis", value: bandInfluenceDescription, inline: false }, // New field with updated description text
@@ -552,7 +554,7 @@ module.exports = async (req, res) => {
                          // Send error response using original structure
                          return res.status(500).json({
                              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                             data: { content: ⚠️ Unable to retrieve financial data: ${error.message || 'Please try again later.'} }
+                             data: { content: `⚠️ Unable to retrieve financial data: ${error.message || 'Please try again later.'}` }
                          });
                      } catch (responseError) {
                           console.error("Failed to send /check error response:", responseError);
@@ -581,7 +583,7 @@ module.exports = async (req, res) => {
                         data: {
                             labels: tickerData.historicalData.map(entry => entry.date),
                             datasets: [{
-                                label: ${tickerData.ticker} Price,
+                                label: `${tickerData.ticker} Price`,
                                 data: tickerData.historicalData.map(entry => entry.price), // Assumes string price input based on fetcher return
                                 borderColor: '#0070f3', backgroundColor: 'rgba(0, 112, 243, 0.1)', borderWidth: 2, pointRadius: 0, fill: true,
                             }]
@@ -593,17 +595,17 @@ module.exports = async (req, res) => {
                             },
                             plugins: {
                                 legend: { display: true, labels: { color: '#333', font: { size: 12 } } },
-                                tooltip: { enabled: true, mode: 'index', intersect: false, callbacks: { label: function(context) { const value = parseFloat(context.parsed?.y); return !isNaN(value) ? $${value.toFixed(2)} : 'N/A'; } } }
+                                tooltip: { enabled: true, mode: 'index', intersect: false, callbacks: { label: function(context) { const value = parseFloat(context.parsed?.y); return !isNaN(value) ? `$${value.toFixed(2)}` : 'N/A'; } } }
                             }
                         }
                     };
                     const chartConfigEncoded = encodeURIComponent(JSON.stringify(chartConfig));
                     // Ensure background color and dimensions are appropriate
-                    const chartUrl = https://quickchart.io/chart?c=${chartConfigEncoded}&w=600&h=400&bkg=%23ffffff; // White background default
+                    const chartUrl = `https://quickchart.io/chart?c=${chartConfigEncoded}&w=600&h=400&bkg=%23ffffff`; // White background default
 
                     // Original embed structure
                     const embed = {
-                        title: ${tickerData.ticker} Financial Data, // Original title
+                        title: `${tickerData.ticker} Financial Data`, // Original title
                         color: 3447003, // Blue
                         fields: [ // Original fields
                             { name: "Current Price", value: tickerData.currentPrice, inline: true },
