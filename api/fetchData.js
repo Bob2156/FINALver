@@ -196,3 +196,8 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: e.message||"Server error" });
   }
 };
+
+// Export helper functions for reuse in other modules
+module.exports.fetchCheckFinancialData = fetchCheckFinancialData;
+module.exports.determineRiskCategory = determineRiskCategory;
+module.exports.determineRecommendationWithBands = determineRecommendationWithBands;
