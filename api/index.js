@@ -775,7 +775,7 @@ module.exports = async (req, res) => {
       // /test - run allocation change check
       case TEST_COMMAND.name.toLowerCase():
         try {
-          const result = await checkAllocation();
+          const result = await checkAllocation(true, 'Test Command');
           const msg = result.previous === result.current
             ? `No change in allocation: ${result.current}`
             : `Allocation changed to: ${result.current}`;
