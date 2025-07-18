@@ -1,10 +1,10 @@
-const cron = require('node-cron');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const fetchData = require('./api/fetchData');
 
 const STATE_FILE = path.join(__dirname, 'last_allocation.json');
+const TEST_FILE = path.join(__dirname, 'test_update_done');
 
 async function sendWebhook(title, message) {
   if (process.env.DISCORD_WEBHOOK_URL) {
@@ -45,28 +45,12 @@ async function checkAllocation(alwaysNotify = false, title = 'Allocation Update'
   return { previous, current, changed };
 }
 
-function scheduleTomorrowTest() {
-  const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setUTCDate(now.getUTCDate() + 1);
-  tomorrow.setUTCHours(18, 0, 0, 0); // 10am PST == 18:00 UTC
-  const delay = tomorrow.getTime() - now.getTime();
-  if (delay > 0) {
-    setTimeout(() => {
-      checkAllocation(true, 'Test Update').catch((err) =>
-        console.error('Test update error', err)
-      );
-    }, delay);
-  }
+function isTestSent() {
+  return fs.existsSync(TEST_FILE);
 }
 
-function startSchedule() {
-  cron.schedule('0 20 * * 1-5', () => {
-    checkAllocation(true, 'Daily Allocation Update').catch((err) =>
-      console.error('Cron error', err)
-    );
-  });
-  scheduleTomorrowTest();
+function markTestSent() {
+  fs.writeFileSync(TEST_FILE, 'done');
 }
 
-module.exports = { checkAllocation, startSchedule };
+module.exports = { checkAllocation, isTestSent, markTestSent };

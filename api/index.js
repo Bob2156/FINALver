@@ -7,8 +7,7 @@ const {
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
 const axios = require("axios");
-const { checkAllocation, startSchedule } = require("../allocationCron");
-startSchedule();
+const { checkAllocation } = require("../allocationCron");
 
 // Define your commands (Unchanged from original)
 const HI_COMMAND = { name: "hi", description: "Say hello!" };

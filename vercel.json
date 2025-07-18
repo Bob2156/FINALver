@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "crons": [
+    { "path": "/api/daily-allocation", "schedule": "0 20 * * 1-5" },
+    { "path": "/api/test-update", "schedule": "0 18 * * *" }
+  ]
+}
