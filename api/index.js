@@ -7,6 +7,7 @@ const {
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
 const axios = require("axios");
+const { checkAllocation } = require("../allocationCron");
 
 // Define your commands (Unchanged from original)
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
@@ -39,6 +40,10 @@ const TICKER_COMMAND = {
       ],
     },
   ],
+};
+const TEST_COMMAND = {
+  name: "test",
+  description: "Run allocation change check.",
 };
 
 // Preset image URL for /ticker command (Test Mode) - Unchanged
@@ -764,6 +769,25 @@ module.exports = async (req, res) => {
             console.error("Failed to send /check error response:", responseError);
             return res.status(500).send("Internal Server Error");
           }
+        }
+
+      // /test - run allocation change check
+      case TEST_COMMAND.name.toLowerCase():
+        try {
+          const result = await checkAllocation(true, 'Test Command');
+          const msg = result.previous === result.current
+            ? `No change in allocation: ${result.current}`
+            : `Allocation changed to: ${result.current}`;
+          return res.status(200).json({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: { content: msg },
+          });
+        } catch (err) {
+          console.error("/test error", err);
+          return res.status(500).json({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: { content: "⚠️ Test failed." },
+          });
         }
 
       // /ticker - DEFER so it works on Vercel (async + patch)

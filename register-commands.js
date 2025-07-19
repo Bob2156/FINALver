@@ -36,6 +36,10 @@ const commands = [
             },
         ],
     },
+    {
+        name: 'test',
+        description: 'Run allocation change check.'
+    },
 ];
 
 // Create a REST instance and set the token
