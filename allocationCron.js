@@ -3,7 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const fetchData = require('./api/fetchData');
 
-const STATE_FILE = path.join(__dirname, 'last_allocation.json');
+// Use /tmp on Vercel because the function directory is read-only. Allow
+// overriding via STATE_FILE env for tests/local use.
+const DEFAULT_STATE_FILE = path.join(
+  process.env.VERCEL ? '/tmp' : __dirname,
+  'last_allocation.json'
+);
+const STATE_FILE = process.env.STATE_FILE || DEFAULT_STATE_FILE;
 
 async function sendWebhook(title, message) {
   if (process.env.DISCORD_WEBHOOK_URL) {
