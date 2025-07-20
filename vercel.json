@@ -2,11 +2,11 @@
   "crons": [
     {
       "path": "/api/daily-update",
-      "schedule": "0 19 * * 1-5"      // 19:00 UTC → 3:00 p.m. ET (1 hr before market close)
+      "schedule": "0 19 * * 1-5"    
     },
     {
       "path": "/api/test-update",
-      "schedule": "30 14 * * 1-5"     // 14:30 UTC → 10:30 a.m. ET (1 hr after market open)
+      "schedule": "30 14 * * 1-5"    
     }
   ]
 }
