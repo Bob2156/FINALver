@@ -1,7 +1,10 @@
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const fetchData = require('./api/fetchData');
+const {
+  fetchCheckFinancialData,
+  determineRecommendationWithBands,
+} = require('./lib/financial');
 
 // Use /tmp on Vercel because the function directory is read-only. Allow
 // overriding via STATE_FILE env for tests/local use.
@@ -22,9 +25,9 @@ async function sendWebhook(title, message) {
 }
 
 async function checkAllocation(alwaysNotify = false, title = 'Allocation Update') {
-  const data = await fetchData.fetchCheckFinancialData();
+  const data = await fetchCheckFinancialData();
   const { recommendedAllocation } =
-    fetchData.determineRecommendationWithBands(data);
+    determineRecommendationWithBands(data);
   const current = recommendedAllocation;
 
   let previous = null;
