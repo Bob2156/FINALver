@@ -25,7 +25,7 @@ Set the following environment variables when deploying:
 
 ```
 EDGE_CONFIG=<connection string>
-EDGE_CONFIG_ID=<id used for updates>
-EDGE_CONFIG_TOKEN=<write token>
+EDGE_CONFIG_ID=<optional id if not in connection>
+EDGE_CONFIG_TOKEN=<optional write token if not in connection>
 BLOB_READ_WRITE_TOKEN=<token for Blob uploads>
 ```
