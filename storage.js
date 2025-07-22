@@ -1,68 +1,37 @@
-const { get } = require('@vercel/edge-config');
-const { put } = require('@vercel/blob');
-const axios = require('axios');
+const { kv } = require('@vercel/kv');
 
-const EDGE_KEY = 'lastAllocation';
+const LAST_KEY = 'lastAllocation';
+const HISTORY_KEY = 'allocationHistory';
 
-async function readEdgeAllocation() {
+async function readAllocation() {
   try {
-    const value = await get(EDGE_KEY);
+    const value = await kv.get(LAST_KEY);
     return typeof value === 'string' ? value : null;
   } catch (err) {
-    console.error('[storage] read edge', err);
+    console.error('[storage] read kv', err);
     return null;
   }
 }
 
-function parseEdgeConnection(str) {
+async function updateAllocation(value) {
   try {
-    const url = new URL(str);
-    const id = url.pathname.split('/').pop();
-    const token = url.searchParams.get('token');
-    return { id, token };
-  } catch {
-    return {};
+    await kv.set(LAST_KEY, value);
+  } catch (err) {
+    console.error('[storage] update kv', err);
   }
 }
 
-async function updateEdgeAllocation(value) {
-  let id = process.env.EDGE_CONFIG_ID;
-  let token = process.env.EDGE_CONFIG_TOKEN;
-  if ((!id || !token) && process.env.EDGE_CONFIG) {
-    const parsed = parseEdgeConnection(process.env.EDGE_CONFIG);
-    if (!id) id = parsed.id;
-    if (!token) token = parsed.token;
-  }
-  if (!id || !token) {
-    console.warn('[storage] EDGE_CONFIG_ID or EDGE_CONFIG_TOKEN not set');
-    return;
-  }
+async function storeSnapshot(allocation) {
   try {
-    await axios.patch(
-      `https://api.vercel.com/v1/edge-config/${id}/items`,
-      { items: [{ operation: 'upsert', key: EDGE_KEY, value }] },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    const entry = JSON.stringify({ allocation, timestamp: new Date().toISOString() });
+    await kv.lpush(HISTORY_KEY, entry);
   } catch (err) {
-    console.error('[storage] update edge', err.response?.data || err);
-  }
-}
-
-async function storeBlobSnapshot(allocation) {
-  try {
-    const path = `allocations/${Date.now()}.json`;
-    await put(
-      path,
-      JSON.stringify({ allocation, timestamp: new Date().toISOString() }),
-      { access: 'public' }
-    );
-  } catch (err) {
-    console.error('[storage] blob put', err);
+    console.error('[storage] kv snapshot', err);
   }
 }
 
 module.exports = {
-  readEdgeAllocation,
-  updateEdgeAllocation,
-  storeBlobSnapshot,
+  readAllocation,
+  updateAllocation,
+  storeSnapshot,
 };

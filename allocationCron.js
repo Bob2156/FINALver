@@ -2,9 +2,9 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const {
-  readEdgeAllocation,
-  updateEdgeAllocation,
-  storeBlobSnapshot,
+  readAllocation,
+  updateAllocation,
+  storeSnapshot,
 } = require('./storage');
 const {
   fetchCheckFinancialData,
@@ -35,7 +35,7 @@ async function checkAllocation(alwaysNotify = false, title = 'Allocation Update'
     determineRecommendationWithBands(data);
   const current = recommendedAllocation;
 
-  let previous = await readEdgeAllocation();
+  let previous = await readAllocation();
   if (!previous) {
     try {
       previous = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')).allocation;
@@ -51,8 +51,8 @@ async function checkAllocation(alwaysNotify = false, title = 'Allocation Update'
     } catch (e) {
       console.error('[storage] file write', e);
     }
-    await updateEdgeAllocation(current);
-    await storeBlobSnapshot(current);
+    await updateAllocation(current);
+    await storeSnapshot(current);
   }
 
   const status = changed
