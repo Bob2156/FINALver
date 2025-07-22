@@ -14,9 +14,25 @@ async function readEdgeAllocation() {
   }
 }
 
+function parseEdgeConnection(str) {
+  try {
+    const url = new URL(str);
+    const id = url.pathname.split('/').pop();
+    const token = url.searchParams.get('token');
+    return { id, token };
+  } catch {
+    return {};
+  }
+}
+
 async function updateEdgeAllocation(value) {
-  const id = process.env.EDGE_CONFIG_ID;
-  const token = process.env.EDGE_CONFIG_TOKEN;
+  let id = process.env.EDGE_CONFIG_ID;
+  let token = process.env.EDGE_CONFIG_TOKEN;
+  if ((!id || !token) && process.env.EDGE_CONFIG) {
+    const parsed = parseEdgeConnection(process.env.EDGE_CONFIG);
+    if (!id) id = parsed.id;
+    if (!token) token = parsed.token;
+  }
   if (!id || !token) {
     console.warn('[storage] EDGE_CONFIG_ID or EDGE_CONFIG_TOKEN not set');
     return;

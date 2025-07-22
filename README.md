@@ -29,3 +29,7 @@ EDGE_CONFIG_ID=<id used for updates>
 EDGE_CONFIG_TOKEN=<write token>
 BLOB_READ_WRITE_TOKEN=<token for Blob uploads>
 ```
+
+If you only have the connection string (e.g. `https://edge-config.vercel.com/ecfg_XXXX?token=YYYY`),
+the ID and token will be automatically extracted by the code. You can still
+set `EDGE_CONFIG_ID` and `EDGE_CONFIG_TOKEN` explicitly if you prefer.
