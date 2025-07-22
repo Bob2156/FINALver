@@ -6,7 +6,6 @@
     "raw-body": "^2.4.1",
     "axios": "^1.5.0",
     "yahoo-finance2": "^2.4.4",
-    "@vercel/edge-config": "^1.4.0",
-    "@vercel/blob": "^1.1.1"
+    "@vercel/kv": "^3.0.0"
   }
 }
