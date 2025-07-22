@@ -27,3 +27,8 @@ Set the following environment variables when deploying:
 KV_REST_API_URL=<connection url>
 KV_REST_API_TOKEN=<access token>
 ```
+
+If either `KV_REST_API_URL` or `KV_REST_API_TOKEN` is not provided, the bot will
+also look for `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` and use
+those values instead. This makes it easier to reuse existing Upstash
+environment variables when migrating.
