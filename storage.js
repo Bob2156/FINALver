@@ -10,6 +10,7 @@ const { kv } = require('@vercel/kv');
 
 const LAST_KEY = 'lastAllocation';
 const HISTORY_KEY = 'allocationHistory';
+const SUBSCRIBERS_KEY = 'allocationSubscribers';
 
 async function readAllocation() {
   try {
@@ -38,8 +39,35 @@ async function storeSnapshot(allocation) {
   }
 }
 
+async function getSubscribers() {
+  try {
+    const ids = await kv.smembers(SUBSCRIBERS_KEY);
+    return Array.isArray(ids) ? ids : [];
+  } catch (err) {
+    console.error('[storage] get subscribers', err);
+    return [];
+  }
+}
+
+async function toggleSubscriber(id) {
+  try {
+    const members = await getSubscribers();
+    if (members.includes(id)) {
+      await kv.srem(SUBSCRIBERS_KEY, id);
+      return false;
+    }
+    await kv.sadd(SUBSCRIBERS_KEY, id);
+    return true;
+  } catch (err) {
+    console.error('[storage] toggle subscriber', err);
+    return false;
+  }
+}
+
 module.exports = {
   readAllocation,
   updateAllocation,
   storeSnapshot,
+  getSubscribers,
+  toggleSubscriber,
 };
