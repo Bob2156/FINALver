@@ -5,7 +5,10 @@ const {
   readAllocation,
   updateAllocation,
   storeSnapshot,
+  getSubscribers,
 } = require('./storage');
+
+const SUBSCRIBE_ALLOC_ID = 'subscribe_alloc';
 const {
   fetchCheckFinancialData,
   determineRecommendationWithBands,
@@ -19,10 +22,24 @@ const DEFAULT_STATE_FILE = path.join(
 );
 const STATE_FILE = process.env.STATE_FILE || DEFAULT_STATE_FILE;
 
-async function sendWebhook(title, message) {
+async function sendWebhook(title, message, mentionIds = []) {
   if (process.env.DISCORD_WEBHOOK_URL) {
+    const mentions = mentionIds.map((id) => `<@${id}>`).join(' ');
     await axios.post(process.env.DISCORD_WEBHOOK_URL, {
-      content: `**${title}**\n${message}`,
+      content: `**${title}**\n${mentions ? mentions + ' ' : ''}${message}`,
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 1,
+              label: 'Notify Me',
+              custom_id: SUBSCRIBE_ALLOC_ID,
+            },
+          ],
+        },
+      ],
     });
   } else {
     console.log(`${title}: ${message}`);
@@ -60,10 +77,11 @@ async function checkAllocation(alwaysNotify = false, title = 'Allocation Update'
     : `No change in allocation: ${current}`;
 
   if (alwaysNotify || changed) {
-    await sendWebhook(title, status);
+    const mentions = await getSubscribers();
+    await sendWebhook(title, status, mentions);
   }
 
   return { previous, current, changed };
 }
 
-module.exports = { checkAllocation };
+module.exports = { checkAllocation, SUBSCRIBE_ALLOC_ID };
