@@ -13,7 +13,7 @@ const {
   determineRiskCategory,
   determineRecommendationWithBands,
 } = require("../lib/financial");
-const { toggleSubscriber } = require("../storage");
+const { toggleSubscriber, removeSubscriber } = require("../storage");
 
 // Define your commands (Unchanged from original)
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
@@ -673,6 +673,17 @@ module.exports = async (req, res) => {
           return res.status(200).json({
             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
             data: { content: text, flags: 64 },
+          });
+        }
+        if (message.data.custom_id === 'unsubscribe_alloc') {
+          const uid = message.member?.user?.id || message.user?.id;
+          await removeSubscriber(uid);
+          return res.status(200).json({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: 'You will no longer receive allocation pings.',
+              flags: 64,
+            },
           });
         }
         return res.status(400).json({ error: 'Unknown component' });

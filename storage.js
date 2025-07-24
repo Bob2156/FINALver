@@ -64,10 +64,21 @@ async function toggleSubscriber(id) {
   }
 }
 
+async function removeSubscriber(id) {
+  try {
+    await kv.srem(SUBSCRIBERS_KEY, id);
+    return true;
+  } catch (err) {
+    console.error('[storage] remove subscriber', err);
+    return false;
+  }
+}
+
 module.exports = {
   readAllocation,
   updateAllocation,
   storeSnapshot,
   getSubscribers,
   toggleSubscriber,
+  removeSubscriber,
 };
