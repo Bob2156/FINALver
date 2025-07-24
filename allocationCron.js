@@ -23,8 +23,9 @@ const STATE_FILE = process.env.STATE_FILE || DEFAULT_STATE_FILE;
 async function sendWebhook(title, message, mentionIds = []) {
   if (process.env.DISCORD_WEBHOOK_URL) {
     const mentions = mentionIds.map((id) => `<@${id}>`).join(' ');
-    await axios.post(process.env.DISCORD_WEBHOOK_URL, {
-      content: `**${title}**\n${mentions ? mentions + ' ' : ''}${message}`,
+    const url = `${process.env.DISCORD_WEBHOOK_URL}?wait=true`;
+    const res = await axios.post(url, {
+      content: `**${title}**\n${message}${mentions ? ' ' + mentions : ''}`,
       components: [
         {
           type: 1,
@@ -45,6 +46,17 @@ async function sendWebhook(title, message, mentionIds = []) {
         },
       ],
     });
+
+    // After 5 seconds, edit the message to remove pings and indicate how many users were notified
+    if (mentionIds.length > 0 && res.data && res.data.id) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      await axios.patch(
+        `${process.env.DISCORD_WEBHOOK_URL}/messages/${res.data.id}`,
+        {
+          content: `**${title}**\n${message} (${mentionIds.length} users pinged)`,
+        }
+      );
+    }
   } else {
     console.log(`${title}: ${message}`);
   }
