@@ -427,6 +427,12 @@ module.exports = async (req, res) => {
                       label: 'Notify Me',
                       custom_id: 'subscribe_alloc',
                     },
+                    {
+                      type: 2,
+                      style: 4,
+                      label: 'Stop Pings',
+                      custom_id: 'unsubscribe_alloc',
+                    },
                   ],
                 },
               ],
