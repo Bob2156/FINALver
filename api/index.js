@@ -13,6 +13,7 @@ const {
   determineRiskCategory,
   determineRecommendationWithBands,
 } = require("../lib/financial");
+const { toggleSubscriber } = require("../storage");
 
 // Define your commands (Unchanged from original)
 const HI_COMMAND = { name: "hi", description: "Say hello!" };
@@ -416,6 +417,19 @@ module.exports = async (req, res) => {
                   timestamp: new Date().toISOString(),
                 },
               ],
+              components: [
+                {
+                  type: 1,
+                  components: [
+                    {
+                      type: 2,
+                      style: 1,
+                      label: 'Notify Me',
+                      custom_id: 'subscribe_alloc',
+                    },
+                  ],
+                },
+              ],
             },
           });
         } catch (error) {
@@ -648,14 +662,31 @@ module.exports = async (req, res) => {
           return res.status(500).json({ error: "Internal Server Error" });
         }
     }
-  } else {
-    // (Original logic)
-    try {
-      console.error("[ERROR] Unknown request type");
-      return res.status(400).json({ error: "Unknown Type" });
-    } catch (error) {
-      console.error("Unknown type handler error:", error);
-      return res.status(500).json({ error: "Internal Server Error" });
+    } else if (message.type === InteractionType.MESSAGE_COMPONENT) {
+      try {
+        if (message.data.custom_id === 'subscribe_alloc') {
+          const uid = message.member?.user?.id || message.user?.id;
+          const added = await toggleSubscriber(uid);
+          const text = added
+            ? 'You will be notified on allocation changes.'
+            : 'You will no longer receive allocation pings.';
+          return res.status(200).json({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: { content: text, flags: 64 },
+          });
+        }
+        return res.status(400).json({ error: 'Unknown component' });
+      } catch (err) {
+        console.error('component error', err);
+        return res.status(500).json({ error: 'Component handling failed' });
+      }
+    } else {
+      try {
+        console.error("[ERROR] Unknown request type");
+        return res.status(400).json({ error: "Unknown Type" });
+      } catch (error) {
+        console.error("Unknown type handler error:", error);
+        return res.status(500).json({ error: "Internal Server Error" });
+      }
     }
-  }
 };
