@@ -7,7 +7,7 @@ const {
 } = require("discord-interactions");
 const getRawBody = require("raw-body");
 const axios = require("axios");
-const { checkAllocation } = require("../allocationCron");
+const { checkAllocation, SUBSCRIBE_ALLOC_ID } = require("../allocationCron");
 const {
   fetchCheckFinancialData,
   determineRiskCategory,
@@ -425,7 +425,7 @@ module.exports = async (req, res) => {
                       type: 2,
                       style: 1,
                       label: 'Notify Me',
-                      custom_id: 'subscribe_alloc',
+                      custom_id: SUBSCRIBE_ALLOC_ID,
                     },
                   ],
                 },
@@ -664,7 +664,7 @@ module.exports = async (req, res) => {
     }
     } else if (message.type === InteractionType.MESSAGE_COMPONENT) {
       try {
-        if (message.data.custom_id === 'subscribe_alloc') {
+        if (message.data.custom_id === SUBSCRIBE_ALLOC_ID) {
           const uid = message.member?.user?.id || message.user?.id;
           const added = await toggleSubscriber(uid);
           const text = added

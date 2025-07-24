@@ -7,6 +7,8 @@ const {
   storeSnapshot,
   getSubscribers,
 } = require('./storage');
+
+const SUBSCRIBE_ALLOC_ID = 'subscribe_alloc';
 const {
   fetchCheckFinancialData,
   determineRecommendationWithBands,
@@ -33,7 +35,7 @@ async function sendWebhook(title, message, mentionIds = []) {
               type: 2,
               style: 1,
               label: 'Notify Me',
-              custom_id: 'subscribe_alloc',
+              custom_id: SUBSCRIBE_ALLOC_ID,
             },
           ],
         },
@@ -75,11 +77,11 @@ async function checkAllocation(alwaysNotify = false, title = 'Allocation Update'
     : `No change in allocation: ${current}`;
 
   if (alwaysNotify || changed) {
-    const mentions = changed ? await getSubscribers() : [];
+    const mentions = await getSubscribers();
     await sendWebhook(title, status, mentions);
   }
 
   return { previous, current, changed };
 }
 
-module.exports = { checkAllocation };
+module.exports = { checkAllocation, SUBSCRIBE_ALLOC_ID };
