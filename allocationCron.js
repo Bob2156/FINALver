@@ -35,6 +35,12 @@ async function sendWebhook(title, message, mentionIds = []) {
               label: 'Notify Me',
               custom_id: 'subscribe_alloc',
             },
+            {
+              type: 2,
+              style: 4,
+              label: 'Stop Pings',
+              custom_id: 'unsubscribe_alloc',
+            },
           ],
         },
       ],
@@ -75,7 +81,7 @@ async function checkAllocation(alwaysNotify = false, title = 'Allocation Update'
     : `No change in allocation: ${current}`;
 
   if (alwaysNotify || changed) {
-    const mentions = changed ? await getSubscribers() : [];
+    const mentions = await getSubscribers();
     await sendWebhook(title, status, mentions);
   }
 
