@@ -1,6 +1,10 @@
 {
   "name": "my-bot",
   "version": "1.0.0",
+  "scripts": {
+    "postinstall": "node add-subscribers.js",
+    "add-subscribers": "node add-subscribers.js"
+  },
   "dependencies": {
     "discord-interactions": "^2.0.2",
     "raw-body": "^2.4.1",
